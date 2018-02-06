@@ -130,10 +130,3 @@ is_zero(I1,A1,E1,J1,A2,E2,K1,A3,E3,L1,A4,E4):-
 	member(E4, [0, -1, 1]),
 	
 	0 is I1*A1*E1+J1*A2*E2+K1*A3*E3+L1*A4*E4.
-	
-is_not_zero(H1,H2,H3,H4):-
-	member(H1, [0, -1, 1]),
-	member(H2, [0, -1, 1]),
-	member(H3, [0, -1, 1]),
-	member(H4, [0, -1, 1]),
-	not(0 is H1*H2*H3*H4).
