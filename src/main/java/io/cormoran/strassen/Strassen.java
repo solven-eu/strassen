@@ -1,265 +1,457 @@
 package io.cormoran.strassen;
 
 import java.util.ArrayList;
-import java.util.Collections;
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashSet;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
+import java.util.Map.Entry;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.LongAdder;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.amazonaws.regions.Regions;
+import com.amazonaws.services.lambda.AWSLambda;
+import com.amazonaws.services.lambda.AWSLambdaClientBuilder;
+import com.amazonaws.services.lambda.invoke.LambdaInvokerFactory;
+import com.google.common.collect.HashBasedTable;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.MultimapBuilder;
+import com.google.common.collect.SetMultimap;
 import com.google.common.collect.Sets;
-import com.google.common.primitives.Ints;
+import com.google.common.collect.Table;
 
 import cormoran.pepper.logging.PepperLogHelper;
+import cormoran.pepper.thread.PepperExecutorsHelper;
 
 public class Strassen {
 	protected static final Logger LOGGER = LoggerFactory.getLogger(Strassen.class);
 
 	public static void main(String[] args) {
-		Set<Block> singleA = new LinkedHashSet<>();
-		Set<Block> singleB = new LinkedHashSet<>();
-		int nbColumns = 2;
-		int nbShared = 2;
-		int nbRows = 2;
+		// Should be 3^5
+		LOGGER.info("Count Vectors: " + all().count());
 
-		// Consider all possible single blocks
-		Sets.cartesianProduct(new HashSet<>(Ints.asList(IntStream.range(0, nbShared).toArray())),
-				new HashSet<>(Ints.asList(IntStream.range(0, nbColumns).toArray())))
-				.forEach(coordinate -> singleA.add(new Block(coordinate.get(0), coordinate.get(1))));
+		// V5 zero = new V5(0, 0, 0, 0, 0);
+		long count = newStreamOfPairs().filter(pair -> 0 == pair.get(0).multiplyToScalar(pair.get(1))).count();
 
-		Sets.cartesianProduct(new HashSet<>(Ints.asList(IntStream.range(0, nbRows).toArray())),
-				new HashSet<>(Ints.asList(IntStream.range(0, nbShared).toArray())))
-				.forEach(coordinate -> singleB.add(new Block(coordinate.get(0), coordinate.get(1))));
+		LOGGER.info("Count pair giving 0: " + count);
 
-		Set<Set<Block>> aBlocks = new HashSet<>();
-		Set<Set<Block>> bBlocks = new HashSet<>();
+		long countPairsTo1 = newStreamOfPairs().filter(pair -> 1 == pair.get(0).multiplyToScalar(pair.get(1))).count();
 
-		aBlocks.add(Collections.emptySet());
-		bBlocks.add(Collections.emptySet());
+		LOGGER.info("Count pair giving 1: " + countPairsTo1);
 
-		// Compute all combinations of blocks sums
-		for (int i = 2; i <= singleA.size(); i++) {
-			singleA.forEach(coordinate -> {
-				// A group may hold from a single block to all blocks
-				aBlocks.addAll(aBlocks.stream().map(blockSet -> {
-					Set<Block> withOneMore = new HashSet<>(blockSet);
+		SetMultimap<V5, V5> leftToRightGiving0 = leftToRightFor0();
+		SetMultimap<V5, V5> leftToRightGiving1 = leftToRightGiving1();
 
-					withOneMore.add(coordinate);
+		LOGGER.info("_2 Hash done");
 
-					return withOneMore;
-				}).collect(Collectors.toList()));
-			});
+		long countIJKL = allIJKLAsStream().count();
+
+		LOGGER.info("Count IJKL: " + countIJKL);
+		// List<List<V5>> allIJKL = allIJKLAsStream().collect(Collectors.toList());
+
+		// List<List<V5>> allIJ = all().filter(i -> i.isGrowing())
+		// .flatMap(i -> all().filter(j -> j.isGrowing() && j.isStrictlyAfter(i)).map(j -> Arrays.asList(i, j)))
+		// .collect(Collectors.toList());
+		//
+		// allIJ.forEach(list -> System.out.println(list));
+
+		ScheduledExecutorService es = PepperExecutorsHelper.newSingleThreadScheduledExecutor("StrassenLog");
+		AtomicInteger countOK = new AtomicInteger();
+		final long max = countIJKL;
+		final LongAdder progress = new LongAdder();
+		es.scheduleAtFixedRate(() -> LOGGER.info("Count: {} . Progress = {} / {} ({})",
+				countOK,
+				progress,
+				max,
+				PepperLogHelper.getNicePercentage(progress.longValue(), max)), 1, 1, TimeUnit.SECONDS);
+
+		Table<V5, V5, V5> aeToAE = aeToAE();
+
+		List<List<V5>> preparedPairs = preparedPairs();
+
+		boolean aws = true;
+
+		ICormoranLambdaScrapper catService;
+		if (aws) {
+			AWSLambdaClientBuilder builder = AWSLambdaClientBuilder.standard();
+			builder.setRegion(Regions.US_EAST_1.getName());
+			AWSLambda awsLambda = builder.build();
+
+			catService = LambdaInvokerFactory.builder().lambdaClient(awsLambda).build(ICormoranLambdaScrapper.class);
+		} else {
+			catService = null;
 		}
 
-		for (int i = 2; i <= singleB.size(); i++) {
-			singleB.forEach(coordinate -> {
-				// A group may hold from a single block to all blocks
-				bBlocks.addAll(bBlocks.stream().map(blockSet -> {
-					Set<Block> withOneMore = new HashSet<>(blockSet);
+		long countSolutions = allIJKLAsStream().parallel().flatMap(list -> {
+			if (aws) {
+				Map<?, ?> output =
+						catService.countCats(new QueryIJKL(list.get(0), list.get(1), list.get(2), list.get(3)));
 
-					withOneMore.add(coordinate);
+				Number counter = (Number) output.get("count");
+				return IntStream.range(0, counter.intValue()).mapToObj(i -> i);
+			} else {
+				return processIJKL(leftToRightGiving0, leftToRightGiving1, aeToAE, preparedPairs, list);
+			}
+		}).peek(ok -> countOK.incrementAndGet()).count();
 
-					return withOneMore;
-				}).collect(Collectors.toList()));
-			});
-		}
+		LOGGER.info("Count solutions IJKL ABC E: {}", countSolutions);
+	}
 
-		aBlocks.remove(Collections.emptySet());
-		bBlocks.remove(Collections.emptySet());
+	public static SetMultimap<V5, V5> leftToRightGiving1() {
+		SetMultimap<V5, V5> leftToRightGiving1 = MultimapBuilder.linkedHashKeys().linkedHashSetValues().build();
 
-		System.out.println("aBlocks: " + aBlocks.size());
-		System.out.println("bBlocks: " + bBlocks.size());
+		newStreamOfPairs().filter(pair -> 1 == pair.get(0).multiplyToScalar(pair.get(1)))
+				.forEach(pair -> leftToRightGiving1.put(pair.get(0), pair.get(1)));
+		return leftToRightGiving1;
+	}
 
-		List<List<Set<Block>>> multiplications = new ArrayList<>(Sets.cartesianProduct(aBlocks, bBlocks));
+	public static SetMultimap<V5, V5> leftToRightFor0() {
+		SetMultimap<V5, V5> leftToRightGiving0 = MultimapBuilder.linkedHashKeys().linkedHashSetValues().build();
 
-		System.out.println(multiplications.size());
+		newStreamOfPairs().filter(pair -> 0 == pair.get(0).multiplyToScalar(pair.get(1)))
+				.forEach(pair -> leftToRightGiving0.put(pair.get(0), pair.get(1)));
+		return leftToRightGiving0;
+	}
 
-		// We try to find a combination involving only 4 multiplications
-		long problemSize = (long) multiplications.size() * multiplications.size()
-				* multiplications.size()
-				* multiplications.size();
+	public static Table<V5, V5, V5> aeToAE() {
+		Table<V5, V5, V5> aeToAE = HashBasedTable.create();
 
-		System.out.println(problemSize);
+		all().forEach(a -> all().forEach(e -> {
+			aeToAE.put(a, e, a.multiply(e));
+		}));
+		return aeToAE;
+	}
 
-		// https://fr.wikipedia.org/wiki/Algorithme_de_Strassen
-		Set<PairOfBLock> requiredPairs = ImmutableSet.of(new PairOfBLock(new Block(0, 0), new Block(0, 0)),
-				new PairOfBLock(new Block(0, 1), new Block(1, 0)),
-				new PairOfBLock(new Block(0, 0), new Block(0, 1)),
-				new PairOfBLock(new Block(0, 1), new Block(1, 1)),
-				new PairOfBLock(new Block(1, 0), new Block(0, 0)),
-				new PairOfBLock(new Block(1, 1), new Block(1, 0)),
-				new PairOfBLock(new Block(1, 0), new Block(0, 1)),
-				new PairOfBLock(new Block(1, 1), new Block(1, 1)));
+	public static List<List<V5>> preparedPairs() {
+		return newStreamOfPairs().collect(Collectors.toList());
+	}
 
-		AtomicLong minBlockInLast = new AtomicLong(Long.MAX_VALUE);
-		AtomicLong nbCombinationWIthMin = new AtomicLong();
+	public static Stream<?> processIJKL(SetMultimap<V5, V5> leftToRightGiving0,
+			SetMultimap<V5, V5> leftToRightGiving1,
+			Table<V5, V5, V5> aeToAE,
+			List<List<V5>> preparedPairs,
+			List<V5> ijkl) {
+		V5 i = ijkl.get(0);
+		V5 j = ijkl.get(1);
+		V5 k = ijkl.get(2);
+		V5 l = ijkl.get(3);
 
-		AtomicLong minProcessed = new AtomicLong();
-		AtomicLong nbWithCombinations = new AtomicLong();
+		return preparedPairs.stream().filter(listAE -> listAE.get(0).isStrictlyAfter(listAE.get(1))).filter(listAE -> {
+			V5 a = listAE.get(0);
+			V5 e = listAE.get(1);
+			// a.multiply(e)
+			V5 ae = aeToAE.get(a, e);
 
-		// Compute all possible combinations of multiplications
-		for (int i = 0; i < multiplications.size(); i++) {
-			System.out.println(PepperLogHelper.getNicePercentage(i, multiplications.size()));
+			return ae.multiplyToScalar(i) == 1 && ae.multiplyToScalar(j) == 0
+					&& ae.multiplyToScalar(k) == 0
+					&& ae.multiplyToScalar(l) == 0;
+		}).flatMap(listAE -> {
+			V5 a = listAE.get(0);
+			V5 e = listAE.get(1);
 
-			List<Set<Block>> first = multiplications.get(i);
+			V5 ie = i.multiply(e);
+			V5 je = j.multiply(e);
+			V5 ke = k.multiply(e);
+			V5 le = l.multiply(e);
 
-			Set<Block> firstSumA = first.get(0);
-			Set<Block> firstSumB = first.get(1);
-			Set<PairOfBLock> firstPairs = Sets.cartesianProduct(firstSumA, firstSumB)
+			V5 ia = i.multiply(a);
+			V5 ja = j.multiply(a);
+			V5 ka = k.multiply(a);
+			V5 la = l.multiply(a);
+
+			Set<V5> bForIE = leftToRightGiving0.get(ie);
+
+			Set<V5> bForJE = leftToRightGiving1.get(je);
+			Set<V5> cForJE = leftToRightGiving0.get(je);
+
+			Set<V5> bForKE = leftToRightGiving0.get(ke);
+
+			Set<V5> bForLE = leftToRightGiving0.get(le);
+
+			Set<V5> bForBEAndCE = new HashSet<>(intersect3(bForIE, bForKE, bForLE));
+
+			Set<V5> bForBE = new HashSet<>(Sets.intersection(bForBEAndCE, bForJE));
+
+			// Set<V5> cForIE = leftToRightGiving0.get(ie);
+			// Set<V5> cForKE = leftToRightGiving0.get(ke);
+			// Set<V5> cForLE = leftToRightGiving0.get(le);
+
+			Set<V5> cForCE = new HashSet<>(Sets.intersection(bForBEAndCE, cForJE));
+
+			Set<V5> dForDE = cForCE;
+
+			Set<V5> gForAGAndAF = new HashSet<>(
+					intersect3(leftToRightGiving0.get(ia), leftToRightGiving0.get(ja), leftToRightGiving0.get(la)));
+
+			Set<V5> gForAG = new HashSet<>(Sets.intersection(gForAGAndAF, leftToRightGiving1.get(ka)));
+
+			Set<V5> fForAF = new HashSet<>(Sets.intersection(gForAGAndAF, leftToRightGiving0.get(ka)));
+
+			Set<V5> hForAH = fForAF;
+
+			if (Arrays.asList(bForBE, cForCE, dForDE, fForAF, gForAG, hForAH)
 					.stream()
-					.map(l -> new PairOfBLock(l.get(0), l.get(1)))
-					.collect(Collectors.toSet());
+					.filter(Collection::isEmpty)
+					.findAny()
+					.isPresent()) {
+				return Stream.empty();
+			}
 
-			for (int j = i + 1; j < multiplications.size(); j++) {
+			Map<String, Set<V5>> nameToValues = ImmutableMap.<String, Set<V5>>builder()
+					.put("b", bForBE)
+					.put("c", cForCE)
+					.put("d", dForDE)
+					.put("f", fForAF)
+					.put("g", gForAG)
+					.put("h", hForAH)
+					.build();
 
-				List<Set<Block>> second = multiplications.get(j);
+			Entry<String, Set<V5>> min = selectMin(nameToValues);
 
-				Set<Block> secondSumA = second.get(0);
-				Set<Block> secondSumB = second.get(1);
-				Set<PairOfBLock> secondPairs = Sets.cartesianProduct(secondSumA, secondSumB)
-						.stream()
-						.map(l -> new PairOfBLock(l.get(0), l.get(1)))
-						.collect(Collectors.toSet());
+			LOGGER.trace("Min: {}", min);
 
-				for (int k = j + 1; k < multiplications.size(); k++) {
-					List<Set<Block>> third = multiplications.get(k);
+			return toStream(ijkl, nameToValues, min);
+		});
+	}
 
-					Set<Block> thirdSumA = third.get(0);
-					Set<Block> thirdSumB = third.get(1);
-					Set<PairOfBLock> thirdPairs = Sets.cartesianProduct(thirdSumA, thirdSumB)
-							.stream()
-							.map(l -> new PairOfBLock(l.get(0), l.get(1)))
-							.collect(Collectors.toSet());
+	private static Set<V5> intersect3(Set<V5> set, Set<V5> set2, Set<V5> set3) {
+		final Set<V5> min;
+		final Set<V5> secondMin;
+		final Set<V5> max;
 
-					IntStream.range(k + 1, multiplications.size()).parallel().unordered().forEach(l -> {
-
-						List<Set<Block>> fourth = multiplications.get(l);
-
-						Set<Block> fourthSumA = fourth.get(0);
-						Set<Block> fourthSumB = fourth.get(1);
-						Set<PairOfBLock> fourthPairs = Sets.cartesianProduct(fourthSumA, fourthSumB)
-								.stream()
-								.map(ll -> new PairOfBLock(ll.get(0), ll.get(1)))
-								.collect(Collectors.toSet());
-
-						Set<PairOfBLock> allCurrentPairs = new HashSet<>();
-						allCurrentPairs.addAll(firstPairs);
-						allCurrentPairs.addAll(secondPairs);
-						allCurrentPairs.addAll(thirdPairs);
-						allCurrentPairs.addAll(fourthPairs);
-
-						if (allCurrentPairs.containsAll(requiredPairs)) {
-							nbWithCombinations.incrementAndGet();
-							if (false) {
-								System.out.println(firstSumA + "*"
-										+ firstSumB
-										+ " + "
-										+ secondSumA
-										+ "*"
-										+ secondSumB
-										+ " + "
-										+ thirdSumA
-										+ "*"
-										+ thirdSumB
-										+ " + "
-										+ fourthSumA
-										+ "*"
-										+ fourthSumB);
-							}
-
-							LinearSum sum = allCurrentPairs.stream().map(ll -> new LinearSum().add(1, ll)).collect(
-									Collectors.reducing(new LinearSum(), (left, right) -> left.merge(right)));
-
-							List<LinearSum> linearEquations = new ArrayList<>();
-
-							// These are our 4 constrain: we search coefficients so that we find back the expected
-							// multiplication
-							linearEquations.add(sum.add(-1, new PairOfBLock(new Block(0, 0), new Block(0, 0))).add(-1,
-									new PairOfBLock(new Block(0, 1), new Block(1, 0))));
-							linearEquations.add(sum.add(-1, new PairOfBLock(new Block(0, 0), new Block(0, 1))).add(-1,
-									new PairOfBLock(new Block(0, 1), new Block(1, 1))));
-							linearEquations.add(sum.add(-1, new PairOfBLock(new Block(1, 0), new Block(0, 0))).add(-1,
-									new PairOfBLock(new Block(1, 1), new Block(1, 0))));
-							linearEquations.add(sum.add(-1, new PairOfBLock(new Block(1, 0), new Block(0, 1))).add(-1,
-									new PairOfBLock(new Block(1, 1), new Block(1, 1))));
-
-							// System.out.println("Before simplication");
-							// System.out.println(linearEquations.get(0));
-							// System.out.println(linearEquations.get(1));
-							// System.out.println(linearEquations.get(2));
-							// System.out.println(linearEquations.get(3));
-
-							for (int eqIndex = 0; eqIndex < linearEquations.size(); eqIndex++) {
-								// Select the next not-0 coefficient
-								Optional<Map.Entry<PairOfBLock, Long>> max =
-										linearEquations.get(eqIndex).pairWithCoef.asMap()
-												.entrySet()
-												.stream()
-												.filter(e -> e.getValue().longValue() != 0)
-												.max(Comparator.comparing(e -> e.getKey()));
-
-								// Entry<PairOfBLock, Long> pivot =
-								// linearEquations.get(0).pairWithCoef.asMap().entrySet().iterator().next();
-
-								if (!max.isPresent()) {
-									break;
-								}
-
-								PairOfBLock pairToRemove = max.get().getKey();
-								long scoreToRemove = max.get().getValue();
-
-								for (int otherEqIndex = eqIndex + 1; otherEqIndex < linearEquations
-										.size(); otherEqIndex++) {
-									LinearSum equation = linearEquations.get(otherEqIndex);
-									long score = equation.pairWithCoef.get(pairToRemove);
-
-									if (score != 0) {
-										if (score != scoreToRemove) {
-											// Integers may not be divisible: score by multiplication
-											equation.scale(scoreToRemove);
-											linearEquations.get(0).scale(score);
-										}
-
-										equation.mutateMinus(linearEquations.get(0));
-									}
-								}
-							}
-
-							if (linearEquations.get(3).pairWithCoef.size() < minBlockInLast.get()) {
-								nbCombinationWIthMin.set(1);
-								minBlockInLast.set(linearEquations.get(3).pairWithCoef.size());
-								LOGGER.info("New min is {}", minBlockInLast);
-
-								System.out.println("After simplication");
-								System.out.println(linearEquations.get(0));
-								System.out.println(linearEquations.get(1));
-								System.out.println(linearEquations.get(2));
-								System.out.println(linearEquations.get(3));
-							} else if (linearEquations.get(3).pairWithCoef.size() == minBlockInLast.get()) {
-								nbCombinationWIthMin.incrementAndGet();
-							}
-						}
-
-						// Now, we need to check if there is a combination of all given products which gives the
-						// expected output (i.e. the matrix multiplication)
-
-						minProcessed.incrementAndGet();
-					});
+		if (set.size() < set2.size()) {
+			if (set2.size() < set3.size()) {
+				min = set;
+				secondMin = set2;
+				max = set3;
+			} else {
+				max = set2;
+				if (set.size() < set3.size()) {
+					min = set;
+					secondMin = set3;
+				} else {
+					min = set3;
+					secondMin = set;
+				}
+			}
+		} else {
+			assert set2.size() <= set.size();
+			if (set3.size() < set2.size()) {
+				min = set3;
+				secondMin = set2;
+				max = set;
+			} else {
+				assert set2.size() <= set3.size();
+				min = set2;
+				if (set.size() < set3.size()) {
+					secondMin = set;
+					max = set3;
+				} else {
+					secondMin = set3;
+					max = set;
 				}
 			}
 		}
+		Set<V5> intermediate = Sets.intersection(min, secondMin);
 
-		System.out.println("Nb combinations: " + nbWithCombinations.get());
-		System.out.println("Nb combinations with min:" + nbCombinationWIthMin);
+		return Sets.intersection(intermediate, max);
+	}
+
+	private static Stream<List<V5>> allIJKLAsStream() {
+		return all()
+				// Order IJKL matrix columns: we order the first columns
+				// .filter(i -> i.isGrowing())
+				.flatMap(i -> all().filter(j ->
+		// j.isGrowing() &&
+		j.isStrictlyAfter(i)).flatMap(j -> all().filter(k ->
+		// k.isGrowing() &&
+		k.isStrictlyAfter(j)).flatMap(k -> all().filter(l ->
+		// l.isGrowing() &&
+		l.isStrictlyAfter(k)).map(l -> Arrays.asList(i, j, k, l)))));
+	}
+
+	private static Stream<? extends V5> toStream(List<V5> list,
+			Map<String, Set<V5>> nameToValues,
+			Entry<String, Set<V5>> min) {
+		return min.getValue().stream().flatMap(b -> {
+			Map<String, Set<V5>> nameToValues2 = reduce(list, nameToValues, min, b);
+
+			Entry<String, Set<V5>> min2 = selectMin(nameToValues2);
+
+			if (min2.getValue().isEmpty()) {
+				return Stream.empty();
+			}
+
+			return min2.getValue().stream().flatMap(c -> {
+				Map<String, Set<V5>> nameToValues3 = reduce(list, nameToValues2, min2, c);
+
+				Entry<String, Set<V5>> min3 = selectMin(nameToValues3);
+
+				if (min3.getValue().isEmpty()) {
+					return Stream.empty();
+				}
+
+				return min3.getValue().stream().flatMap(d -> {
+					Map<String, Set<V5>> nameToValues4 = reduce(list, nameToValues3, min3, d);
+
+					Entry<String, Set<V5>> min4 = selectMin(nameToValues4);
+
+					if (min4.getValue().isEmpty()) {
+						return Stream.empty();
+					}
+
+					return min4.getValue().stream().flatMap(f -> {
+						Map<String, Set<V5>> nameToValues5 = reduce(list, nameToValues4, min4, f);
+
+						Entry<String, Set<V5>> min5 = selectMin(nameToValues5);
+
+						if (min5.getValue().isEmpty()) {
+							return Stream.empty();
+						}
+
+						return min5.getValue().stream().flatMap(g -> {
+							Map<String, Set<V5>> nameToValues6 = reduce(list, nameToValues5, min5, g);
+
+							Entry<String, Set<V5>> min6 = selectMin(nameToValues6);
+
+							if (min6.getValue().isEmpty()) {
+								return Stream.empty();
+							}
+
+							return min5.getValue().stream().flatMap(h -> {
+								Map<String, Set<V5>> nameToValues7 = reduce(list, nameToValues6, min6, h);
+
+								Entry<String, Set<V5>> min7 = selectMin(nameToValues7);
+
+								if (min7.getValue().isEmpty()) {
+									return Stream.empty();
+								}
+
+								return min7.getValue().stream();
+							});
+						});
+					});
+				});
+			});
+		});
+	}
+
+	private static Entry<String, Set<V5>> selectMin(Map<String, Set<V5>> nameToValues2) {
+		return nameToValues2.entrySet().stream().min(Comparator.comparing(entry -> entry.getValue().size())).get();
+	}
+
+	private static Map<String, Set<V5>> reduce(List<V5> list,
+			Map<String, Set<V5>> nameToValues,
+			Entry<String, Set<V5>> min,
+			V5 b) {
+		return nameToValues.entrySet().stream().filter(ee -> !ee.getKey().equals(min.getKey())).collect(
+				Collectors.toMap(ee -> ee.getKey(), ee -> restrict(list, min.getKey(), b, ee.getKey(), ee.getValue())));
+	}
+
+	private static Set<String> abcd = ImmutableSet.of("a", "b", "c", "d");
+	private static Set<String> efgh = ImmutableSet.of("e", "f", "g", "h");
+
+	private static final Set<Set<String>> bgdh = ImmutableSet.of(ImmutableSet.of("b", "g"), ImmutableSet.of("d", "h"));
+	private static final Set<Set<String>> agch = ImmutableSet.of(ImmutableSet.of("a", "g"), ImmutableSet.of("c", "h"));
+	private static final Set<Set<String>> bedf = ImmutableSet.of(ImmutableSet.of("b", "e"), ImmutableSet.of("d", "f"));
+	private static final Set<Set<String>> aecf = ImmutableSet.of(ImmutableSet.of("a", "e"), ImmutableSet.of("c", "f"));
+
+	private static Set<V5> restrict(List<V5> ijkl,
+			String valueName,
+			V5 valueEnforced,
+			String candidateColumn,
+			Set<V5> leftCandidates) {
+		if (abcd.contains(valueName) && abcd.contains(candidateColumn)) {
+			return leftCandidates;
+		} else if (efgh.contains(valueName) && efgh.contains(candidateColumn)) {
+			return leftCandidates;
+		} else {
+			Set<String> question = ImmutableSet.of(valueName, candidateColumn);
+			if (aecf.contains(question)) {
+				return leftCandidates.stream().filter(candidate -> {
+					V5 restricted = candidate.multiply(valueEnforced);
+					return restricted.multiplyToScalar(ijkl.get(0)) == 1
+							&& restricted.multiplyToScalar(ijkl.get(1)) == 0
+							&& restricted.multiplyToScalar(ijkl.get(2)) == 0
+							&& restricted.multiplyToScalar(ijkl.get(3)) == 0;
+				}).collect(Collectors.toSet());
+			} else if (bedf.contains(question)) {
+				return leftCandidates.stream().filter(candidate -> {
+					V5 restricted = candidate.multiply(valueEnforced);
+					return restricted.multiplyToScalar(ijkl.get(0)) == 0
+							&& restricted.multiplyToScalar(ijkl.get(1)) == 1
+							&& restricted.multiplyToScalar(ijkl.get(2)) == 0
+							&& restricted.multiplyToScalar(ijkl.get(3)) == 0;
+				}).collect(Collectors.toSet());
+			} else if (agch.contains(question)) {
+				return leftCandidates.stream().filter(candidate -> {
+					V5 restricted = candidate.multiply(valueEnforced);
+					return restricted.multiplyToScalar(ijkl.get(0)) == 0
+							&& restricted.multiplyToScalar(ijkl.get(1)) == 0
+							&& restricted.multiplyToScalar(ijkl.get(2)) == 1
+							&& restricted.multiplyToScalar(ijkl.get(3)) == 0;
+				}).collect(Collectors.toSet());
+			} else if (bgdh.contains(question)) {
+				return leftCandidates.stream().filter(candidate -> {
+					V5 restricted = candidate.multiply(valueEnforced);
+					return restricted.multiplyToScalar(ijkl.get(0)) == 0
+							&& restricted.multiplyToScalar(ijkl.get(1)) == 0
+							&& restricted.multiplyToScalar(ijkl.get(2)) == 0
+							&& restricted.multiplyToScalar(ijkl.get(3)) == 1;
+				}).collect(Collectors.toSet());
+			} else {
+				return leftCandidates.stream().filter(candidate -> {
+					V5 restricted = candidate.multiply(valueEnforced);
+					return restricted.multiplyToScalar(ijkl.get(0)) == 0
+							&& restricted.multiplyToScalar(ijkl.get(1)) == 0
+							&& restricted.multiplyToScalar(ijkl.get(2)) == 0
+							&& restricted.multiplyToScalar(ijkl.get(3)) == 0;
+				}).collect(Collectors.toSet());
+			}
+
+		}
+	}
+
+	private static Stream<List<V5>> newStreamOfPairs() {
+		return newStreamOfNlets(2);
+	}
+
+	private static Stream<List<V5>> newStreamOfTriplets() {
+		return newStreamOfNlets(3);
+	}
+
+	private static Stream<List<V5>> newStreamOfNlets(int n) {
+		List<Set<V5>> asList = new ArrayList<>();
+
+		IntStream.range(0, n).forEach(i -> asList.add(all().map(v5 -> v5).collect(Collectors.toSet())));
+
+		return ImmutableList.copyOf(Sets.cartesianProduct(asList)).stream();
+	}
+
+	private static Stream<V5> all() {
+		int power = 5;
+
+		int limit = 1;
+		for (int i = 0; i < power; i++) {
+			// -1, 0, 1 -> 3 values
+			limit *= 3;
+		}
+
+		int[] array = IntStream.range(0, power).map(i -> -1).toArray();
+
+		return Stream.iterate(new V5(array), v5 -> v5.increment(-1, 1)).limit(limit);
 	}
 }

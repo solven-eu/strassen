@@ -1,34 +1,141 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
-    <modelVersion>4.0.0</modelVersion>
+	<modelVersion>4.0.0</modelVersion>
 
-    <groupId>io.cormoran</groupId>
-    <artifactId>strassen</artifactId>
-    <version>1.0-SNAPSHOT</version>
+	<groupId>io.cormoran</groupId>
+	<artifactId>strassen</artifactId>
+	<version>1.0-SNAPSHOT</version>
 
-    <packaging>jar</packaging>
+	<packaging>jar</packaging>
 
-    <properties>
-        <maven.compiler.source>1.8</maven.compiler.source>
-        <maven.compiler.target>1.8</maven.compiler.target>
-    </properties>
+	<properties>
+		<maven.compiler.source>1.8</maven.compiler.source>
+		<maven.compiler.target>1.8</maven.compiler.target>
 
-    <dependencies>
-        <dependency>
-            <groupId>com.google.guava</groupId>
-            <artifactId>guava</artifactId>
-            <version>21.0</version>
-        </dependency>
 
-        <dependency>
-            <groupId>ch.qos.logback</groupId>
-            <artifactId>logback-classic</artifactId>
-            <version>1.1.1</version>
-        </dependency>
-        <dependency>
-            <groupId>com.github.cormoran-io.pepper</groupId>
-            <artifactId>pepper</artifactId>
-            <version>1.14</version>
-        </dependency>
-    </dependencies>
+		<!-- https://mvnrepository.com/artifact/com.amazonaws/aws-java-sdk -->
+		<amazon.version>1.11.256</amazon.version>
+	</properties>
 
+	<dependencies>
+		<dependency>
+			<groupId>com.google.guava</groupId>
+			<artifactId>guava</artifactId>
+			<version>21.0</version>
+		</dependency>
+
+		<dependency>
+			<groupId>ch.qos.logback</groupId>
+			<artifactId>logback-classic</artifactId>
+			<version>1.2.3</version>
+		</dependency>
+		<dependency>
+			<groupId>com.github.cormoran-io.pepper</groupId>
+			<artifactId>pepper</artifactId>
+			<version>1.15</version>
+		</dependency>
+
+
+
+		<dependency>
+			<groupId>com.amazonaws</groupId>
+			<artifactId>aws-java-sdk-lambda</artifactId>
+			<version>${amazon.version}</version>
+		</dependency>
+		<dependency>
+			<!-- http://www.baeldung.com/java-aws-lambda -->
+			<groupId>com.amazonaws</groupId>
+			<artifactId>aws-lambda-java-core</artifactId>
+			<version>1.2.0</version>
+		</dependency>
+
+		<dependency>
+			<groupId>junit</groupId>
+			<artifactId>junit</artifactId>
+			<version>4.12</version>
+		</dependency>
+	</dependencies>
+
+	<build>
+		<plugins>
+			<!-- <plugin> -->
+			<!-- <groupId>org.springframework.boot</groupId> -->
+			<!-- <artifactId>spring-boot-maven-plugin</artifactId> -->
+			<!-- <executions> -->
+			<!-- <execution> -->
+			<!-- <goals> -->
+			<!-- <goal>repackage</goal> -->
+			<!-- </goals> -->
+			<!-- </execution> -->
+			<!-- </executions> -->
+			<!-- </plugin> -->
+
+			<plugin>
+				<!-- https://docs.aws.amazon.com/fr_fr/lambda/latest/dg/java-create-jar-pkg-maven-no-ide.html -->
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-shade-plugin</artifactId>
+
+				<configuration>
+					<createDependencyReducedPom>false</createDependencyReducedPom>
+					<!-- Keep the shaded jar separated -->
+					<shadedArtifactAttached>true</shadedArtifactAttached>
+
+					<!-- TODO: Switch to true and continue the listing of required classes -->
+					<minimizeJar>false</minimizeJar>
+				</configuration>
+				<executions>
+					<execution>
+						<phase>package</phase>
+						<goals>
+							<goal>shade</goal>
+						</goals>
+					</execution>
+				</executions>
+			</plugin>
+			<plugin><!-- https://mvnrepository.com/artifact/com.github.seanroy/lambda-maven-plugin -->
+				<groupId>com.github.seanroy</groupId>
+				<artifactId>lambda-maven-plugin</artifactId>
+				<version>2.3.1</version>
+
+				<!-- Either do 'mvn package shade:shade lambda:deploy-lambda' -->
+				<!-- Or 'mvn deploy -DskipTests' -->
+				<executions>
+					<execution>
+						<phase>deploy</phase>
+						<goals>
+							<goal>deploy-lambda</goal>
+						</goals>
+					</execution>
+				</executions>
+
+				<!-- https://github.com/SeanRoy/lambda-maven-plugin -->
+				<configuration>
+					<functionCode>${project.build.directory}/${project.artifactId}-${project.version}-shaded.jar</functionCode>
+					<version>${project.version}</version>
+					<!-- https://console.aws.amazon.com/iam/home?region=us-east-1#/roles/hello-lambda-role -->
+					<lambdaRoleArn>arn:aws:iam::144657973876:role/hello-lambda-role</lambdaRoleArn>
+					<s3Bucket>cormoran-lambda</s3Bucket>
+
+					<region>us-east-1</region>
+
+					<forceUpdate>true</forceUpdate>
+
+					<!-- This is the maximum: 300 -->
+					<!-- TODO: Adjust to a relevant value -->
+					<timeout>30</timeout>
+
+					<!-- This is the minimum -->
+					<memorySize>128</memorySize>
+
+					<functionNameSuffix>dev</functionNameSuffix>
+
+					<lambdaFunctions>
+						<lambdaFunction>
+							<functionName>strassenIjkl</functionName>
+							<handler>io.cormoran.strassen.LambdaStrassen::handleRequest</handler>
+						</lambdaFunction>
+					</lambdaFunctions>
+				</configuration>
+			</plugin>
+		</plugins>
+	</build>
 </project>

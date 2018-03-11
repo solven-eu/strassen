@@ -63,3 +63,9 @@ java_pid*
 #WinMerge
 *.bak
 *.orig
+
+# JMC
+recording.jfr
+
+
+
