@@ -14,6 +14,10 @@
 
 		<!-- https://mvnrepository.com/artifact/com.amazonaws/aws-java-sdk -->
 		<amazon.version>1.11.256</amazon.version>
+
+
+		<!-- We deploy only into lambda -->
+		<maven.deploy.skip>true</maven.deploy.skip>
 	</properties>
 
 	<dependencies>
@@ -132,6 +136,11 @@
 						<lambdaFunction>
 							<functionName>strassenIjkl</functionName>
 							<handler>io.cormoran.strassen.LambdaStrassen::handleRequest</handler>
+						</lambdaFunction>
+
+						<lambdaFunction>
+							<functionName>strassenIjk</functionName>
+							<handler>io.cormoran.strassen.LambdaStrassenIJK::handleRequest</handler>
 						</lambdaFunction>
 					</lambdaFunctions>
 				</configuration>

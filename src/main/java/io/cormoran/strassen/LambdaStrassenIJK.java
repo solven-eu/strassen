@@ -5,18 +5,13 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import com.amazonaws.services.lambda.runtime.Context;
-import com.amazonaws.services.lambda.runtime.RequestStreamHandler;
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.SetMultimap;
-import com.google.common.collect.Table;
 import com.google.common.io.CharStreams;
 
 /**
@@ -25,15 +20,7 @@ import com.google.common.io.CharStreams;
  * @author Benoit Lacelle
  *
  */
-public class LambdaStrassen implements RequestStreamHandler {
-	protected static ObjectMapper objectMapper = new ObjectMapper();
-
-	Table<V5, V5, V5> aeToAE = Strassen.aeToAE();
-
-	SetMultimap<V5, List<V5>> preparedPairs = Strassen.preparedPairs();
-
-	SetMultimap<V5, V5> leftToRightGiving0 = Strassen.leftToRightFor0();
-	SetMultimap<V5, V5> leftToRightGiving1 = Strassen.leftToRightGiving1();
+public class LambdaStrassenIJK extends LambdaStrassen {
 
 	public static class LambdaScrapperSpringConfig {
 
@@ -41,7 +28,7 @@ public class LambdaStrassen implements RequestStreamHandler {
 
 	// Required by AWS Lambda as .handleRequest is not static
 	// https://docs.aws.amazon.com/lambda/latest/dg/best-practices.html
-	public LambdaStrassen() {
+	public LambdaStrassenIJK() {
 	}
 
 	public void handleRequest(InputStream inputStream, OutputStream outputStream, Context context)
@@ -50,23 +37,19 @@ public class LambdaStrassen implements RequestStreamHandler {
 
 		context.getLogger().log("Received as command: " + inputAsString);
 
-		QueryIJKL ijkl = objectMapper.readValue(inputAsString, QueryIJKL.class);
+		QueryIJK ijkl = objectMapper.readValue(inputAsString, QueryIJK.class);
 
-		List<List<V5>> count = countForIJKL(ijkl);
+		List<AnswerIJKLABCDEFGH> count = countForIJK(ijkl)
+				.map(list -> new AnswerIJKLABCDEFGH(new QueryIJKL(list.get(0), list.get(1), list.get(2), list.get(3)),
+						new QueryIJKL(list.get(5), list.get(5), list.get(6), list.get(7)),
+						new QueryIJKL(list.get(8), list.get(9), list.get(10), list.get(11))))
+				.collect(Collectors.toList());
 
-		objectMapper.writer().writeValue(outputStream, ImmutableMap.of("count", count));
+		objectMapper.writer().writeValue(outputStream, count);
 	}
 
-	public List<List<V5>> countForIJKL(QueryIJKL ijkl) {
-		return Strassen.processIJKL(leftToRightGiving0,
-				leftToRightGiving1,
-				// aeToAE,
-				preparedPairs,
-				Arrays.asList(ijkl.i, ijkl.j, ijkl.k, ijkl.l)).collect(Collectors.toList());
-	}
-
-	public Stream<List<V5>> countForIJKL(QueryIJK ijk) {
-		Stream<List<V5>> stream = Strassen.allIJKLAsStream().parallel().filter(
+	public Stream<List<V5>> countForIJK(QueryIJK ijk) {
+		Stream<List<V5>> stream = Strassen.allIJKLAsStream(ijk.i, ijk.j, ijk.k).parallel().filter(
 				ijkl -> ijkl.get(0).equals(ijk.i) && ijkl.get(1).equals(ijk.j) && ijkl.get(2).equals(ijk.k));
 
 		return stream.flatMap(ijkl -> Strassen.processIJKL(leftToRightGiving0,

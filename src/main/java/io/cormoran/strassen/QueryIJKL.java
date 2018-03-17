@@ -1,6 +1,5 @@
 package io.cormoran.strassen;
 
-import java.util.Arrays;
 import java.util.List;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
