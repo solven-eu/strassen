@@ -1,14 +1,20 @@
 package io.cormoran.strassen;
 
 import java.util.Arrays;
+import java.util.stream.IntStream;
 
-public class V5 {
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+public class V5 implements Comparable<V5> {
+	protected static final Logger LOGGER = LoggerFactory.getLogger(V5.class);
+
 	public final int[] v0;
 	private final int hashcode;
 
 	public V5(int[] v0) {
 		this.v0 = v0;
-		this.hashcode= Arrays.hashCode(v0);
+		this.hashcode = Arrays.hashCode(v0);
 	}
 
 	@Override
@@ -58,17 +64,30 @@ public class V5 {
 	public V5 increment(int minValue, int maxValue) {
 		int[] copy = v0.clone();
 
+		boolean incremented = false;
+
 		for (int i = v0.length - 1; i >= 0; i--) {
 			if (copy[i] < maxValue) {
 				copy[i]++;
+				incremented = true;
 				break;
 			} else {
 				copy[i] = minValue;
 			}
 		}
 
-		return new V5(copy);
-		// throw new IllegalStateException("Should have stopped before");
+		if (!incremented) {
+			// TODO: We should never get here, we do not throw to improve stability
+			for (int i = 0; i < copy.length; i++) {
+				copy[i] = minValue;
+			}
+		}
+
+		V5 incrementedVector = new V5(copy);
+		if (!incremented) {
+			LOGGER.warn("Incrementing from {} to {}", this, incrementedVector);
+		}
+		return incrementedVector;
 	}
 
 	public boolean isStrictlyAfter(V5 strictlyBefore) {
@@ -88,7 +107,9 @@ public class V5 {
 	 * 132, 213,231,312,321)
 	 * 
 	 * @return
+	 * @deprecated it should not useful for anything
 	 */
+	@Deprecated
 	public boolean isGrowing() {
 		for (int i = 0; i < v0.length - 1; i++) {
 			if (v0[i] > v0[i + 1]) {
@@ -97,5 +118,20 @@ public class V5 {
 		}
 
 		return true;
+	}
+
+	public V5 multiplyByScalar(int factor) {
+		return new V5(IntStream.of(this.v0).map(i -> i * factor).toArray());
+	}
+
+	@Override
+	public int compareTo(V5 other) {
+		if (this.isStrictlyAfter(other)) {
+			return 1;
+		} else if (this.equals(other)) {
+			return 0;
+		} else {
+			return -1;
+		}
 	}
 }

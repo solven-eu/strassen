@@ -10,13 +10,15 @@ import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestStreamHandler;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.SetMultimap;
-import com.google.common.collect.Table;
 import com.google.common.io.CharStreams;
 
 /**
@@ -26,14 +28,24 @@ import com.google.common.io.CharStreams;
  *
  */
 public class LambdaStrassen implements RequestStreamHandler {
+	protected static final Logger LOGGER = LoggerFactory.getLogger(LambdaStrassen.class);
+
 	protected static ObjectMapper objectMapper = new ObjectMapper();
 
-	Table<V5, V5, V5> aeToAE = Strassen.aeToAE();
+	static final SetMultimap<V5, List<V5>> preparedPairs;
 
-	SetMultimap<V5, List<V5>> preparedPairs = Strassen.preparedPairs();
+	static final SetMultimap<V5, V5> leftToRightGiving0;
+	static final SetMultimap<V5, V5> leftToRightGiving1;
 
-	SetMultimap<V5, V5> leftToRightGiving0 = Strassen.leftToRightFor0();
-	SetMultimap<V5, V5> leftToRightGiving1 = Strassen.leftToRightGiving1();
+	static {
+		LOGGER.info("Initializing preparedPairs");
+		preparedPairs = Strassen.preparedPairs();
+		LOGGER.info("Initializing leftToRightFor0");
+		leftToRightGiving0 = Strassen.leftToRightFor0();
+		LOGGER.info("Initializing leftToRightGiving1");
+		leftToRightGiving1 = Strassen.leftToRightGiving1();
+		LOGGER.info("Done initializing");
+	}
 
 	public static class LambdaScrapperSpringConfig {
 
@@ -52,28 +64,7 @@ public class LambdaStrassen implements RequestStreamHandler {
 
 		QueryIJKL ijkl = objectMapper.readValue(inputAsString, QueryIJKL.class);
 
-		List<List<V5>> count = countForIJKL(ijkl);
-
-		objectMapper.writer().writeValue(outputStream, ImmutableMap.of("count", count));
-	}
-
-	public List<List<V5>> countForIJKL(QueryIJKL ijkl) {
-		return Strassen.processIJKL(leftToRightGiving0,
-				leftToRightGiving1,
-				// aeToAE,
-				preparedPairs,
-				Arrays.asList(ijkl.i, ijkl.j, ijkl.k, ijkl.l)).collect(Collectors.toList());
-	}
-
-	public Stream<List<V5>> countForIJKL(QueryIJK ijk) {
-		Stream<List<V5>> stream = Strassen.allIJKLAsStream().parallel().filter(
-				ijkl -> ijkl.get(0).equals(ijk.i) && ijkl.get(1).equals(ijk.j) && ijkl.get(2).equals(ijk.k));
-
-		return stream.flatMap(ijkl -> Strassen.processIJKL(leftToRightGiving0,
-				leftToRightGiving1,
-				// aeToAE,
-				preparedPairs,
-				ijkl));
+		throw new UnsupportedOperationException();
 	}
 
 }

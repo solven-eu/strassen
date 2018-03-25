@@ -7,6 +7,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -26,32 +27,30 @@ import com.amazonaws.regions.Regions;
 import com.amazonaws.services.lambda.AWSLambda;
 import com.amazonaws.services.lambda.AWSLambdaClientBuilder;
 import com.amazonaws.services.lambda.invoke.LambdaInvokerFactory;
-import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Maps;
 import com.google.common.collect.MultimapBuilder;
 import com.google.common.collect.SetMultimap;
 import com.google.common.collect.Sets;
-import com.google.common.collect.Table;
+import com.google.common.math.LongMath;
 
 import cormoran.pepper.jvm.GCInspector;
 import cormoran.pepper.logging.PepperLogHelper;
 import cormoran.pepper.thread.PepperExecutorsHelper;
 
 public class Strassen {
-	public static final ImmutableSet<List<String>> FORCE_GROWING =
-			ImmutableSet.<List<String>>builder().add(Arrays.<String>asList("a", "e")
-			// , Arrays.<String>asList("e", "g"), Arrays.<String>asList("a", "g")
-			).add(Arrays.<String>asList("c", "f")
-			// , Arrays.<String>asList("f", "h"), Arrays.<String>asList("c", "h")
-			)
-					// Ensure second matrix of ones is strictly after the first one
-					.add(Arrays.<String>asList("a", "c"))
-					// Transitivity
-					.add(Arrays.<String>asList("a", "f"))
-					.build();
+	public static final ImmutableSet<List<String>> FORCE_GROWING = ImmutableSet.<List<String>>builder()
+			// .add(Arrays.<String>asList("a", "e")
+			// // , Arrays.<String>asList("e", "g"), Arrays.<String>asList("a", "g")
+			// ).add(Arrays.<String>asList("c", "f")
+			// // , Arrays.<String>asList("f", "h"), Arrays.<String>asList("c", "h")
+			// )
+			// // Ensure second matrix of ones is strictly after the first one
+			// .add(Arrays.<String>asList("a", "c"))
+			// // Transitivity
+			// .add(Arrays.<String>asList("a", "f"))
+			.build();
 
 	protected static final Logger LOGGER = LoggerFactory.getLogger(Strassen.class);
 
@@ -88,7 +87,7 @@ public class Strassen {
 		final long max;
 		if (aws) {
 			long countIJK = allIJKLAsStream().parallel()
-					.map(ijkl -> new QueryIJK(ijkl.get(0), ijkl.get(1), ijkl.get(2)))
+					.map(ijkl -> new QueryIJK(ijkl.ijkl.i, ijkl.ijkl.j, ijkl.ijkl.k))
 					.distinct()
 					.count();
 			max = countIJK;
@@ -101,8 +100,6 @@ public class Strassen {
 				progress,
 				max,
 				PepperLogHelper.getNicePercentage(progress.longValue(), max)), 1, 1, TimeUnit.SECONDS);
-
-		Table<V5, V5, V5> aeToAE = aeToAE();
 
 		SetMultimap<V5, List<V5>> preparedPairs = preparedPairs();
 
@@ -119,47 +116,59 @@ public class Strassen {
 
 		Set<QueryIJK> ijkSubmitted = Sets.newConcurrentHashSet();
 
-		long countSolutions = allIJKLAsStream().parallel().peek(ijkl -> progress.increment()).flatMap(ijkl -> {
-			if (aws) {
-				// One query per IJKL leads to too many queries: Network/IO/latency is dominant -> too slow
-				QueryIJK queryIJK = new QueryIJK(ijkl.get(0), ijkl.get(1), ijkl.get(2));
+		long countSolutions = allIJKLAsStream(leftToRightGiving0, leftToRightGiving1, preparedPairs).parallel()
+				.peek(ijkl -> progress.increment())
+				.flatMap(ijklAndAEs -> {
+					if (aws) {
+						// One query per IJKL leads to too many queries: Network/IO/latency is dominant -> too slow
+						// QueryIJK queryIJK = new QueryIJK(ijkl.get(0), ijkl.get(1), ijkl.get(2));
+						QueryIJK queryIJK = new QueryIJK(ijklAndAEs.ijkl.i, ijklAndAEs.ijkl.j, ijklAndAEs.ijkl.k);
 
-				if (ijkSubmitted.add(queryIJK)) {
-					List<AnswerIJKLABCDEFGH> output = catService.countCats(queryIJK);
+						if (ijkSubmitted.add(queryIJK)) {
+							List<AnswerIJKLABCDEFGH> output = catService.countCats(queryIJK);
 
-					return output.stream().map(answer -> {
-						LOGGER.info("One solution: ijkl={} abcd={} efgh={}",
-								answer.getIjkl(),
-								answer.getAbcd(),
-								answer.getEfgh());
+							return output.stream().map(answer -> {
+								LOGGER.info("One solution: ijkl={} abcd={} efgh={}",
+										answer.getIjkl(),
+										answer.getAbcd(),
+										answer.getEfgh());
 
-						return Arrays.asList(answer.getIjkl().getI(),
-								answer.getIjkl().getJ(),
-								answer.getIjkl().getK(),
-								answer.getIjkl().getL(),
+								return Arrays.asList(answer.getIjkl().getI(),
+										answer.getIjkl().getJ(),
+										answer.getIjkl().getK(),
+										answer.getIjkl().getL(),
 
-								answer.getAbcd().getI(),
-								answer.getAbcd().getJ(),
-								answer.getAbcd().getK(),
-								answer.getAbcd().getL(),
+										answer.getAbcd().getI(),
+										answer.getAbcd().getJ(),
+										answer.getAbcd().getK(),
+										answer.getAbcd().getL(),
 
-								answer.getEfgh().getI(),
-								answer.getEfgh().getJ(),
-								answer.getEfgh().getK(),
-								answer.getEfgh().getL());
-					});
-				} else {
-					// Already submitted for computation
-					return Stream.empty();
-				}
-			} else {
-				return processIJKL(leftToRightGiving0, leftToRightGiving1
-				// , aeToAE
-				, preparedPairs, ijkl);
-			}
-		}).peek(ok -> countOK.incrementAndGet()).count();
+										answer.getEfgh().getI(),
+										answer.getEfgh().getJ(),
+										answer.getEfgh().getK(),
+										answer.getEfgh().getL());
+							});
+						} else {
+							// Already submitted for computation
+							return Stream.empty();
+						}
+					} else {
+						return processIJKL(leftToRightGiving0,
+								leftToRightGiving1,
+								preparedPairs,
+								ijklAndAEs.aeCandidates,
+								ijklAndAEs.ijkl);
+					}
+				})
+				.peek(ok -> countOK.incrementAndGet())
+				.count();
 
 		LOGGER.info("Count solutions IJKL ABC E: {}", countSolutions);
+	}
+
+	@Deprecated
+	private static Stream<IJKLAndAEs> allIJKLAsStream() {
+		return allIJKLAsStream(leftToRightFor0(), leftToRightGiving1(), preparedPairs());
 	}
 
 	public static SetMultimap<V5, V5> leftToRightGiving1() {
@@ -174,155 +183,151 @@ public class Strassen {
 		SetMultimap<V5, V5> leftToRightGiving0 = MultimapBuilder.linkedHashKeys().linkedHashSetValues().build();
 
 		// We have no interest in vectors full of 0s
-		V5 zero = new V5(new int[power]);
+		V5 zero = new V5(new int[newStreamOfPairs().findFirst().get().get(0).v0.length]);
 
-		newStreamOfPairs().filter(pair -> 0 == pair.get(0).multiplyToScalar(pair.get(1)))
-				.filter(pair -> !pair.get(0).equals(zero) && !pair.get(1).equals(zero))
-				.forEach(pair -> leftToRightGiving0.put(pair.get(0), pair.get(1)));
+		newStreamOfPairs().filter(pair -> 0 == pair.get(0).multiplyToScalar(pair.get(1))).filter(pair ->
+		// We want to receive all vectors associated to zero, but not zero as associated to another vector
+		// !pair.get(0).equals(zero) &&
+		!pair.get(1).equals(zero)).forEach(pair -> leftToRightGiving0.put(pair.get(0), pair.get(1)));
 
 		return leftToRightGiving0;
-	}
-
-	public static Table<V5, V5, V5> aeToAE() {
-		Table<V5, V5, V5> aeToAE = HashBasedTable.create();
-
-		all().forEach(a -> all().forEach(e -> {
-			aeToAE.put(a, e, a.multiply(e));
-		}));
-		return aeToAE;
 	}
 
 	public static SetMultimap<V5, List<V5>> preparedPairs() {
 		SetMultimap<V5, List<V5>> aeToAE = MultimapBuilder.hashKeys().hashSetValues().build();
 
 		// e is is strictly after a
-		newStreamOfPairs().filter(listAE -> listAE.get(1).isStrictlyAfter(listAE.get(0))).forEach(ae -> {
-			V5 a = ae.get(0);
-			V5 e = ae.get(1);
-			aeToAE.put(a.multiply(e), Arrays.asList(a, e));
-		});
+		newStreamOfPairs()
+				// .filter(listAE -> listAE.get(1).isStrictlyAfter(listAE.get(0)))
+				.forEach(ae -> {
+					V5 a = ae.get(0);
+					V5 e = ae.get(1);
+					aeToAE.put(a.multiply(e), Arrays.asList(a, e));
+				});
 
 		return aeToAE;
 	}
 
 	public static Stream<List<V5>> processIJKL(SetMultimap<V5, V5> leftToRightGiving0,
 			SetMultimap<V5, V5> leftToRightGiving1,
-			// Table<V5, V5, V5> aeToAE,
 			SetMultimap<V5, List<V5>> aeToAAndE,
-			List<V5> ijkl) {
-		V5 i = ijkl.get(0);
-		V5 j = ijkl.get(1);
-		V5 k = ijkl.get(2);
-		V5 l = ijkl.get(3);
+			Set<V5> okAE,
+			QueryIJKL ijkl) {
+		V5 i = ijkl.i;
+		V5 j = ijkl.j;
+		V5 k = ijkl.k;
+		V5 l = ijkl.l;
 
-		Set<V5> okAEForI = leftToRightGiving1.get(i);
-		Set<V5> okAEForJ = leftToRightGiving0.get(j);
-		Set<V5> okAEForK = leftToRightGiving0.get(k);
-		Set<V5> okAEForL = leftToRightGiving0.get(l);
+		V5 strassenA = new V5(new int[] { 1, 0, 1, 0, 1, -1, 0 });
+		V5 strassenB = new V5(new int[] { 0, 1, 0, 0, 0, 1, 0 });
+		V5 strassenC = new V5(new int[] { 0, 0, 0, 0, 1, 0, 1 });
 
-		Set<V5> okAE = Sets.intersection(intersect3(okAEForI, okAEForJ, okAEForK), okAEForL);
+		V5 strassenE = new V5(new int[] { 1, 1, 0, -1, 0, 1, 0 });
+		V5 strassenG = new V5(new int[] { 0, 0, 1, 0, 0, 1, 0 });
+		V5 strassenH = new V5(new int[] { 1, 0, -1, 0, 1, 0, 1 });
 
-		return okAE.stream()
-				.flatMap(ae -> aeToAAndE.get(ae).stream())
-				// .filter(listAE -> listAE.getValue().multiplyToScalar(i) == 1
-				// && listAE.getValue().multiplyToScalar(j) == 0
-				// && listAE.getValue().multiplyToScalar(k) == 0
-				// && listAE.getValue().multiplyToScalar(l) == 0)
-				// .filter(listAE -> okAE.contains(listAE.getValue()))
-				.flatMap(listAE -> {
-					V5 a = listAE.get(0);
-					V5 e = listAE.get(1);
+		return okAE.stream().flatMap(ae -> aeToAAndE.get(ae).stream()).flatMap(listAE -> {
+			V5 a = listAE.get(0);
+			V5 e = listAE.get(1);
 
-					V5 ia = i.multiply(a);
-					V5 ja = j.multiply(a);
-					V5 ka = k.multiply(a);
-					V5 la = l.multiply(a);
+			if (a.equals(strassenA) && e.equals(strassenG)) {
+				System.out.println("a:" + a);
+				System.out.println("e:" + e);
+			}
 
-					// Constrain on F, G and H are stronger: higher change to be rejected early
-					Set<V5> gForAGAndAF = intersect3(leftToRightGiving0.get(ia),
-							leftToRightGiving0.get(ja),
-							leftToRightGiving0.get(la)).stream().collect(Collectors.toSet());
+			V5 ia = i.multiply(a);
+			V5 ja = j.multiply(a);
+			V5 ka = k.multiply(a);
+			V5 la = l.multiply(a);
 
-					Set<V5> fForKAF = leftToRightGiving0.get(ka);
-					Set<V5> fForAF = Sets
-							.intersection(applyOrdering("e", e, "f", applyOrdering("a", a, "f", gForAGAndAF)), fForKAF)
+			// Constrain on F, G and H are stronger: higher change to be rejected early
+			Set<V5> gForAGAndAF =
+					intersect3(leftToRightGiving0.get(ia), leftToRightGiving0.get(ja), leftToRightGiving0.get(la))
 							.stream()
 							.collect(Collectors.toSet());
-					if (fForAF.isEmpty()) {
-						return Stream.empty();
-					}
 
-					Set<V5> gForAG = Sets.intersection(gForAGAndAF, leftToRightGiving1.get(ka)).stream().collect(
-							Collectors.toSet());
-					if (gForAG.isEmpty()) {
-						return Stream.empty();
-					}
-
-					Set<V5> hForAH = fForAF;
-
-					V5 ie = i.multiply(e);
-					V5 je = j.multiply(e);
-					V5 ke = k.multiply(e);
-					V5 le = l.multiply(e);
-
-					Set<V5> bForIE = leftToRightGiving0.get(ie);
-
-					Set<V5> bForJE = leftToRightGiving1.get(je);
-					Set<V5> cForJE = leftToRightGiving0.get(je);
-
-					Set<V5> bForKE = leftToRightGiving0.get(ke);
-					Set<V5> bForLE = leftToRightGiving0.get(le);
-
-					Set<V5> bForBEAndCE = intersect3(bForIE, bForKE, bForLE).stream().collect(Collectors.toSet());
-
-					// Enforce ordering as early as possible
-					Set<V5> cForCE = Sets
-							.intersection(applyOrdering("e", e, "c", applyOrdering("a", a, "c", bForBEAndCE)), cForJE)
+			Set<V5> fForKAF = leftToRightGiving0.get(ka);
+			Set<V5> fForAF =
+					Sets.intersection(applyOrdering("e", e, "f", applyOrdering("a", a, "f", gForAGAndAF)), fForKAF)
 							.stream()
 							.collect(Collectors.toSet());
-					if (cForCE.isEmpty()) {
-						return Stream.empty();
-					}
+			if (fForAF.isEmpty()) {
+				return Stream.empty();
+			}
 
-					Set<V5> bForBE = Sets.intersection(bForBEAndCE, bForJE).stream().collect(Collectors.toSet());
-					if (bForBE.isEmpty()) {
-						return Stream.empty();
-					}
+			Set<V5> gForAG =
+					Sets.intersection(gForAGAndAF, leftToRightGiving1.get(ka)).stream().collect(Collectors.toSet());
+			if (gForAG.isEmpty()) {
+				return Stream.empty();
+			}
 
-					Set<V5> dForDE = cForCE;
+			Set<V5> hForAH = fForAF;
 
-					if (Stream.of(bForBE, cForCE, dForDE, fForAF, gForAG, hForAH)
-							.filter(Collection::isEmpty)
-							.findAny()
-							.isPresent()) {
-						return Stream.empty();
-					}
+			V5 ie = i.multiply(e);
+			V5 je = j.multiply(e);
+			V5 ke = k.multiply(e);
+			V5 le = l.multiply(e);
 
-					Map<String, Set<V5>> nameToValues = ImmutableMap.<String, Set<V5>>builder()
-							.put("b", bForBE)
-							.put("c", cForCE)
-							.put("d", dForDE)
-							.put("f", fForAF)
-							.put("g", gForAG)
-							.put("h", hForAH)
-							.build()
-							.entrySet()
+			Set<V5> bForIE = leftToRightGiving0.get(ie);
+
+			Set<V5> bForJE = leftToRightGiving1.get(je);
+			Set<V5> cForJE = leftToRightGiving0.get(je);
+
+			Set<V5> bForKE = leftToRightGiving0.get(ke);
+			Set<V5> bForLE = leftToRightGiving0.get(le);
+
+			Set<V5> bForBEAndCE = intersect3(bForIE, bForKE, bForLE).stream().collect(Collectors.toSet());
+
+			// Enforce ordering as early as possible
+			Set<V5> cForCE =
+					Sets.intersection(applyOrdering("e", e, "c", applyOrdering("a", a, "c", bForBEAndCE)), cForJE)
 							.stream()
-							.collect(Collectors.toMap(ee -> ee.getKey(),
-									ee -> applyOrdering("a",
-											a,
-											ee.getKey(),
-											applyOrdering("e", e, ee.getKey(), ee.getValue()))));
+							.collect(Collectors.toSet());
+			if (cForCE.isEmpty()) {
+				return Stream.empty();
+			}
 
-					Entry<String, Set<V5>> min = selectMin(nameToValues);
+			Set<V5> bForBE = Sets.intersection(bForBEAndCE, bForJE).stream().collect(Collectors.toSet());
+			if (bForBE.isEmpty()) {
+				return Stream.empty();
+			}
 
-					LOGGER.trace("Min: {}", min);
-					if (min.getValue().isEmpty()) {
-						return Stream.empty();
-					}
+			Set<V5> dForDE = cForCE;
 
-					return toStream(ijkl, a, e, nameToValues, min);
-				});
+			if (Stream.of(bForBE, cForCE, dForDE, fForAF, gForAG, hForAH)
+					.filter(Collection::isEmpty)
+					.findAny()
+					.isPresent()) {
+				return Stream.empty();
+			}
+
+			Map<String, Set<V5>> nameToValues = ImmutableMap.<String, Set<V5>>builder()
+					.put("b", bForBE)
+					.put("c", cForCE)
+					.put("d", dForDE)
+					.put("f", fForAF)
+					.put("g", gForAG)
+					.put("h", hForAH)
+					.build()
+					.entrySet()
+					.stream()
+					.collect(Collectors.toMap(ee -> ee.getKey(),
+							ee -> applyOrdering("a",
+									a,
+									ee.getKey(),
+									applyOrdering("e", e, ee.getKey(), ee.getValue()))));
+
+			Entry<String, Set<V5>> min = selectMin(nameToValues);
+
+			LOGGER.trace("Min: {}", min);
+			if (min.getValue().isEmpty()) {
+				return Stream.empty();
+			}
+
+			System.out.println("Candidate: a=" + a + " e=" + e + " min:" + min);
+
+			return toStream(ijkl, a, e, nameToValues, min);
+		});
 	}
 
 	private static Set<V5> intersect3(Set<V5> set, Set<V5> set2, Set<V5> set3) {
@@ -368,47 +373,165 @@ public class Strassen {
 		return Sets.intersection(intermediate, max);
 	}
 
-	public static Stream<List<V5>> allIJKLAsStream() {
-		V5 zero = new V5(new int[power]);
-
-		List<V5> orderedNotZero = all().sorted((l, r) -> {
-			if (l.isStrictlyAfter(r)) {
-				return 1;
-			} else if (l.equals(r)) {
-				return 0;
-			} else {
-				return -1;
-			}
-		}).filter(l -> !l.equals(zero)).collect(Collectors.toList());
+	public static Stream<IJKLAndAEs> allIJKLAsStream(SetMultimap<V5, V5> leftToRightGiving0,
+			SetMultimap<V5, V5> leftToRightGiving1,
+			SetMultimap<V5, List<V5>> preparedPairs) {
+		List<V5> orderedNotZero = orderedNotZero(leftToRightGiving0);
 
 		// Order IJKL matrix columns: we order the first columns
-		return IntStream.range(0, orderedNotZero.size())
-				.mapToObj(i -> i)
-				.flatMap(indexI -> IntStream.range(indexI + 1, orderedNotZero.size())
-						.mapToObj(i -> i)
-						.flatMap(indexJ -> IntStream.range(indexJ + 1, orderedNotZero.size())
-								.mapToObj(i -> i)
-								.flatMap(indexK -> IntStream.range(indexK + 1, orderedNotZero.size())
-										.mapToObj(indexL -> Arrays.asList(orderedNotZero.get(indexI),
-												orderedNotZero.get(indexJ),
-												orderedNotZero.get(indexK),
-												orderedNotZero.get(indexL))
+		IntStream indexICandidates = IntStream.range(0, orderedNotZero.size());
 
-		))));
+		return allIJKLAsStream(leftToRightGiving0,
+				leftToRightGiving1,
+				orderedNotZero,
+				indexICandidates,
+				Optional.empty());
 	}
 
-	public static Stream<List<V5>> allIJKLAsStream(V5 i, V5 j, V5 k) {
-		V5 zero = new V5(new int[i.v0.length]);
+	static List<V5> orderedNotZero(SetMultimap<V5, V5> leftToRightGiving0) {
+		V5 zero = new V5(new int[leftToRightGiving0.keySet().iterator().next().v0.length]);
 
-		if (false) {
-			assert j.isStrictlyAfter(i);
-			assert k.isStrictlyAfter(j);
+		// smallToBig
+		List<V5> orderedNotZero = all().sorted().filter(l -> !l.equals(zero)).collect(Collectors.toList());
+		return orderedNotZero;
+	}
+
+	private static Stream<IJKLAndAEs> allIJKLAsStream(SetMultimap<V5, V5> leftToRightGiving0,
+			SetMultimap<V5, V5> leftToRightGiving1,
+			List<V5> orderedNotZero,
+			IntStream indexICandidates,
+			Optional<V5> filterJ) {
+		V5 zero = new V5(new int[orderedNotZero.get(0).v0.length]);
+
+		return indexICandidates.mapToObj(i -> i)
+				// J > I
+				.flatMap(indexI -> IntStream.range(indexI + 1, orderedNotZero.size())
+						.mapToObj(indexJ -> indexJ)
+						// K > J
+						.flatMap(indexJ -> {
+							V5 vectorI = orderedNotZero.get(indexI);
+
+							Set<V5> okAEForI = leftToRightGiving1.get(vectorI);
+
+							if (okAEForI.isEmpty()) {
+								System.out.println("OUCH 0");
+							}
+
+							V5 vectorJ = orderedNotZero.get(indexJ);
+							if (filterJ.isPresent() && !vectorJ.equals(filterJ.get())) {
+								LOGGER.trace("Rejected because {} <> {}", vectorJ, filterJ.get());
+								return Stream.empty();
+							}
+
+							Set<V5> okAEForJ = leftToRightGiving0.get(vectorJ);
+
+							if (okAEForJ.isEmpty()) {
+								System.out.println("OUCH 1");
+							}
+
+							Set<V5> okAEForIJ = ImmutableSet.copyOf(Sets.intersection(okAEForI, okAEForJ));
+							if (okAEForIJ.isEmpty()) {
+								// System.out.println("OUCH 2");
+								return Stream.empty();
+							}
+
+							return IntStream.range(indexJ + 1, orderedNotZero.size())
+									.mapToObj(indexK -> indexK)
+									// L > K => L > I
+									.flatMap(indexK -> {
+
+										V5 vectorK = orderedNotZero.get(indexK);
+
+										Set<V5> okAEForK = leftToRightGiving0.get(vectorK);
+										if (okAEForK.isEmpty()) {
+											System.out.println("OUCH 3");
+										}
+
+										Set<V5> okAEForIJK =
+												ImmutableSet.copyOf(Sets.intersection(okAEForIJ, okAEForK));
+										if (okAEForIJK.isEmpty()) {
+											// System.out.println("OUCH 4");
+											return Stream.empty();
+										}
+
+										V5 absI;
+										if (vectorI.isStrictlyAfter(zero)) {
+											absI = vectorI;
+										} else {
+											// vectorI < 0 : absolute value is *-1
+											absI = vectorI.multiplyByScalar(-1);
+										}
+
+										return IntStream.range(indexK + 1, orderedNotZero.size())
+
+												// We also want to enforce |L| < |I| (or L < -I), else we could multiply
+												// I|J|K|L
+												// by -1
+												.filter(indexL -> checkSymetryFromIToL(zero,
+														orderedNotZero,
+														absI,
+														indexL))
+												// We filter indexL by Sets.intersect in a second pass as it is slower
+												.mapToObj(indexL -> {
+
+													V5 vectorL = orderedNotZero.get(indexL);
+													Set<V5> okAEForL = leftToRightGiving0.get(vectorL);
+
+													if (okAEForL.isEmpty()) {
+														System.out.println("OUCH 5");
+													}
+
+													Set<V5> okAE = ImmutableSet
+															.copyOf(Sets.intersection(okAEForIJK, okAEForL));
+
+													return new IJKLAndAEs(
+															new QueryIJKL(orderedNotZero.get(indexI),
+																	orderedNotZero.get(indexJ),
+																	orderedNotZero.get(indexK),
+																	orderedNotZero.get(indexL)),
+															okAE);
+
+												}
+
+				);
+									});
+						}));
+	}
+
+	public static boolean checkSymetryFromIToL(V5 zero, List<V5> orderedNotZero, V5 absI, int indexL) {
+		V5 vectorL = orderedNotZero.get(indexL);
+
+		if (vectorL.isStrictlyAfter(zero)) {
+			// vectorL == absL => we check L is after I
+			return vectorL.isStrictlyAfter(absI);
+		} else {
+			// vectorL == -1*absL
+			V5 absL = vectorL.multiplyByScalar(-1);
+
+			return absL.isStrictlyAfter(absI);
+		}
+	}
+
+	public static Stream<IJKLAndAEs> allIJKLAsStream(SetMultimap<V5, V5> leftToRightGiving0,
+			SetMultimap<V5, V5> leftToRightGiving1,
+			SetMultimap<V5, List<V5>> preparedPairs,
+			V5 singleICandidate,
+			Optional<V5> filterJ) {
+		List<V5> orderedNotZero = orderedNotZero(leftToRightGiving0);
+
+		// Order IJKL matrix columns: we order the first columns
+		int indexOf = orderedNotZero.indexOf(singleICandidate);
+
+		if (indexOf < 0) {
+			throw new IllegalStateException("Invalid value for I: " + singleICandidate);
 		}
 
-		return all().filter(l -> !l.equals(zero)).filter(l -> l.isStrictlyAfter(k)).map(l -> Arrays.asList(i, j, k, l));
+		IntStream indexICandidates = IntStream.of(indexOf);
+
+		return allIJKLAsStream(leftToRightGiving0, leftToRightGiving1, orderedNotZero, indexICandidates, filterJ);
 	}
 
-	private static Stream<List<V5>> toStream(List<V5> list,
+	private static Stream<List<V5>> toStream(QueryIJKL list,
 			V5 a,
 			V5 e,
 			Map<String, Set<V5>> nameToValues,
@@ -468,8 +591,7 @@ public class Strassen {
 										f,
 										g,
 										h);
-								return Stream.of(Arrays.<V5>asList(list
-										.get(0), list.get(1), list.get(2), list.get(3), a, b, c, d, e, f, g, h));
+								return Stream.of(Arrays.asList(list.i, list.j, list.k, list.l, a, b, c, d, e, f, g, h));
 							});
 						});
 					});
@@ -482,7 +604,7 @@ public class Strassen {
 		return nameToValues2.entrySet().stream().min(Comparator.comparing(entry -> entry.getValue().size())).get();
 	}
 
-	private static Map<String, Set<V5>> reduce(List<V5> ijkl, Map<String, Set<V5>> nameToValues, String minKey, V5 b) {
+	private static Map<String, Set<V5>> reduce(QueryIJKL ijkl, Map<String, Set<V5>> nameToValues, String minKey, V5 b) {
 		return nameToValues.entrySet()
 				.stream()
 				.filter(ee -> !ee.getKey().equals(minKey))
@@ -523,7 +645,7 @@ public class Strassen {
 	private static final Set<Set<String>> bedf = ImmutableSet.of(ImmutableSet.of("b", "e"), ImmutableSet.of("d", "f"));
 	private static final Set<Set<String>> aecf = ImmutableSet.of(ImmutableSet.of("a", "e"), ImmutableSet.of("c", "f"));
 
-	private static Set<V5> applyConditions(List<V5> ijkl,
+	private static Set<V5> applyConditions(QueryIJKL ijkl,
 			String valueName,
 			V5 valueEnforced,
 			String candidateColumn,
@@ -537,42 +659,37 @@ public class Strassen {
 			if (aecf.contains(question)) {
 				return leftCandidates.stream().filter(candidate -> {
 					V5 restricted = candidate.multiply(valueEnforced);
-					return restricted.multiplyToScalar(ijkl.get(0)) == 1
-							&& restricted.multiplyToScalar(ijkl.get(1)) == 0
-							&& restricted.multiplyToScalar(ijkl.get(2)) == 0
-							&& restricted.multiplyToScalar(ijkl.get(3)) == 0;
+					return restricted.multiplyToScalar(ijkl.i) == 1 && restricted.multiplyToScalar(ijkl.j) == 0
+							&& restricted.multiplyToScalar(ijkl.k) == 0
+							&& restricted.multiplyToScalar(ijkl.l) == 0;
 				}).collect(Collectors.toSet());
 			} else if (bedf.contains(question)) {
 				return leftCandidates.stream().filter(candidate -> {
 					V5 restricted = candidate.multiply(valueEnforced);
-					return restricted.multiplyToScalar(ijkl.get(0)) == 0
-							&& restricted.multiplyToScalar(ijkl.get(1)) == 1
-							&& restricted.multiplyToScalar(ijkl.get(2)) == 0
-							&& restricted.multiplyToScalar(ijkl.get(3)) == 0;
+					return restricted.multiplyToScalar(ijkl.i) == 0 && restricted.multiplyToScalar(ijkl.j) == 1
+							&& restricted.multiplyToScalar(ijkl.k) == 0
+							&& restricted.multiplyToScalar(ijkl.l) == 0;
 				}).collect(Collectors.toSet());
 			} else if (agch.contains(question)) {
 				return leftCandidates.stream().filter(candidate -> {
 					V5 restricted = candidate.multiply(valueEnforced);
-					return restricted.multiplyToScalar(ijkl.get(0)) == 0
-							&& restricted.multiplyToScalar(ijkl.get(1)) == 0
-							&& restricted.multiplyToScalar(ijkl.get(2)) == 1
-							&& restricted.multiplyToScalar(ijkl.get(3)) == 0;
+					return restricted.multiplyToScalar(ijkl.i) == 0 && restricted.multiplyToScalar(ijkl.j) == 0
+							&& restricted.multiplyToScalar(ijkl.k) == 1
+							&& restricted.multiplyToScalar(ijkl.l) == 0;
 				}).collect(Collectors.toSet());
 			} else if (bgdh.contains(question)) {
 				return leftCandidates.stream().filter(candidate -> {
 					V5 restricted = candidate.multiply(valueEnforced);
-					return restricted.multiplyToScalar(ijkl.get(0)) == 0
-							&& restricted.multiplyToScalar(ijkl.get(1)) == 0
-							&& restricted.multiplyToScalar(ijkl.get(2)) == 0
-							&& restricted.multiplyToScalar(ijkl.get(3)) == 1;
+					return restricted.multiplyToScalar(ijkl.i) == 0 && restricted.multiplyToScalar(ijkl.j) == 0
+							&& restricted.multiplyToScalar(ijkl.k) == 0
+							&& restricted.multiplyToScalar(ijkl.l) == 1;
 				}).collect(Collectors.toSet());
 			} else {
 				return leftCandidates.stream().filter(candidate -> {
 					V5 restricted = candidate.multiply(valueEnforced);
-					return restricted.multiplyToScalar(ijkl.get(0)) == 0
-							&& restricted.multiplyToScalar(ijkl.get(1)) == 0
-							&& restricted.multiplyToScalar(ijkl.get(2)) == 0
-							&& restricted.multiplyToScalar(ijkl.get(3)) == 0;
+					return restricted.multiplyToScalar(ijkl.i) == 0 && restricted.multiplyToScalar(ijkl.j) == 0
+							&& restricted.multiplyToScalar(ijkl.k) == 0
+							&& restricted.multiplyToScalar(ijkl.l) == 0;
 				}).collect(Collectors.toSet());
 			}
 
@@ -592,14 +709,17 @@ public class Strassen {
 	}
 
 	private static Stream<V5> all() {
-		int limit = 1;
-		for (int i = 0; i < power; i++) {
-			// -1, 0, 1 -> 3 values
-			limit *= 3;
-		}
+		// -1, 0, 1 -> 3 values
+		int minValue = -1;
+		int maxValue = 1;
+		// +1 for 0
+		int nbValues = maxValue - minValue + 1;
+		final long limit = LongMath.checkedPow(nbValues, power);
 
-		int[] array = IntStream.range(0, power).map(i -> -1).toArray();
+		// First value: min values everywhere
+		int[] array = IntStream.range(0, power).map(i -> minValue).toArray();
 
-		return Stream.iterate(new V5(array), v5 -> v5.increment(-1, 1)).limit(limit);
+		// TODO: Check the stream is sorted
+		return Stream.iterate(new V5(array), v5 -> v5.increment(minValue, maxValue)).limit(limit);
 	}
 }
