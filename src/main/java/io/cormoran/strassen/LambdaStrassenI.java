@@ -51,8 +51,8 @@ public class LambdaStrassenI extends LambdaStrassen {
 	public Stream<List<V5>> countForIJK(QueryI indexI) {
 		Stream<IJKLAndAEs> stream = Strassen.allIJKLAsStream(LambdaStrassen.leftToRightGiving0,
 				LambdaStrassen.leftToRightGiving1,
-				LambdaStrassen.preparedPairs,
-				indexI.i,
+				Stream.of(indexI.i),
+				Optional.empty(),
 				Optional.empty()).parallel();
 
 		return stream.flatMap(ijkl -> Strassen.processIJKL(leftToRightGiving0,

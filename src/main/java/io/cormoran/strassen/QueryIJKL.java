@@ -42,4 +42,10 @@ public class QueryIJKL {
 	public List<Integer> getL() {
 		return Ints.asList(l.v0);
 	}
+
+	@Override
+	public String toString() {
+		return "QueryIJKL [i=" + i + ", j=" + j + ", k=" + k + ", l=" + l + "]";
+	}
+
 }

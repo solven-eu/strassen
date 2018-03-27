@@ -110,9 +110,19 @@ public class V5 implements Comparable<V5> {
 	 * @deprecated it should not useful for anything
 	 */
 	@Deprecated
-	public boolean isGrowing() {
+	public boolean isSoftlyGrowing() {
 		for (int i = 0; i < v0.length - 1; i++) {
 			if (v0[i] > v0[i + 1]) {
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	public boolean isStrictlyGrowing() {
+		for (int i = 0; i < v0.length - 1; i++) {
+			if (v0[i] >= v0[i + 1]) {
 				return false;
 			}
 		}

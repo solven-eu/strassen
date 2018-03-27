@@ -6,14 +6,19 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
 import org.junit.Assert;
 import org.junit.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.SetMultimap;
 
 public class TestStrassen {
+	protected static final Logger LOGGER = LoggerFactory.getLogger(TestStrassen.class);
+
 	@Test
 	public void testIsBefore() {
 		V5 zero = new V5(IntStream.range(0, 5).map(i -> 0).toArray());
@@ -34,50 +39,98 @@ public class TestStrassen {
 				Arrays.asList(0, 0, 1, 0, 1, 0, 0),
 				Arrays.asList(1, -1, 1, 0, 0, 1, 0));
 
-		List<V5> unsortedStrassenIJKL = Arrays.asList(strassenIJKL.i, strassenIJKL.j, strassenIJKL.k, strassenIJKL.l);
-		List<V5> sortedStrassenIJKL = unsortedStrassenIJKL.stream().sorted().collect(Collectors.toList());
+		List<V5> unsorted_pqrst = IntStream.range(0, Strassen.power).mapToObj(i -> {
+			return new V5(new int[] { strassenIJKL.i.v0[i],
+					strassenIJKL.j.v0[i],
+					strassenIJKL.k.v0[i],
+					strassenIJKL.l.v0[i] });
+		}).collect(Collectors.toList());
 
-		V5 strassenOrderedI = sortedStrassenIJKL.get(0);
-		int indexOfIinUnoredred = unsortedStrassenIJKL.indexOf(strassenOrderedI);
+		List<V5> sorted_pqrst = unsorted_pqrst.stream().sorted().collect(Collectors.toList());
 
-		// We observe the answer is 1: it means I in ordered is K in standard strassen
-		Assert.assertEquals(2, indexOfIinUnoredred);
+		int[] sortIndexes = IntStream.range(0, Strassen.power)
+				.map(index -> sorted_pqrst.indexOf(unsorted_pqrst.get(index)))
+				.toArray();
 
-		{
-			V5 strassenOrderedL = sortedStrassenIJKL.get(3);
-			V5 zero = new V5(new int[strassenOrderedL.v0.length]);
-			List<V5> orderedNotZero = Strassen.orderedNotZero(LambdaStrassen.leftToRightGiving0);
+		Assert.assertSame(sorted_pqrst.get(sortIndexes[0]), unsorted_pqrst.get(0));
 
-			Assert.assertTrue("I is not positive", strassenOrderedI.isStrictlyAfter(zero));
+		V5 sortedI = new V5(sorted_pqrst.stream().mapToInt(v5 -> v5.v0[0]).toArray());
+		V5 sortedJ = new V5(sorted_pqrst.stream().mapToInt(v5 -> v5.v0[1]).toArray());
+		V5 sortedK = new V5(sorted_pqrst.stream().mapToInt(v5 -> v5.v0[2]).toArray());
+		V5 sortedL = new V5(sorted_pqrst.stream().mapToInt(v5 -> v5.v0[3]).toArray());
 
-			Assert.assertTrue(Strassen.checkSymetryFromIToL(zero,
-					orderedNotZero,
-					strassenOrderedI,
-					orderedNotZero.indexOf(strassenOrderedL)));
-		}
+		LOGGER.info("sorted I: {}", sortedI);
+		// [v0=[-1, 0, 0, 0, 1, 1, 1]]
 
-		long nbSolutions = Strassen.allIJKLAsStream(LambdaStrassen.leftToRightGiving0,
+		LOGGER.info("sorted J: {}", sortedJ);
+		// [v0=[0, 0, 0, 1, 0, 0, 1]]
+
+		LOGGER.info("sorted K: {}", sortedK);
+		// [v0=[1, 0, 1, 0, 0, 0, 0]]
+
+		LOGGER.info("sorted L: {}", sortedL);
+		// [v0=[0, 1, 1, -1, 0, 1, 0]]
+
+		// Assert.assertTrue(Strassen.generateAfter(sortedI, 0).collect(Collectors.toList()).contains(sortedJ));
+		// Assert.assertTrue(Strassen.generateAfter(sortedJ, 0).collect(Collectors.toList()).contains(sortedK));
+		// Assert.assertTrue(Strassen.generateAfter(sortedK, 0).collect(Collectors.toList()).contains(sortedL));
+
+		Stream<IJKLAndAEs> towardsSolution = Strassen.allIJKLAsStream(LambdaStrassen.leftToRightGiving0,
 				LambdaStrassen.leftToRightGiving1,
-				LambdaStrassen.preparedPairs,
-				strassenOrderedI,
-				Optional.of(sortedStrassenIJKL.get(1))).parallel().count();
+				Stream.of(sortedI),
+				Optional.of(sortedJ),
+				Optional.of(sortedK));
 
-		Assert.assertTrue(nbSolutions > 0);
-		System.out.println(nbSolutions);
+		List<IJKLAndAEs> towardsSolutionAsList = towardsSolution.parallel().collect(Collectors.toList());
+		Assert.assertTrue(towardsSolutionAsList.size() > 0);
 
-		List<IJKLAndAEs> asForStrassen = Strassen
-				.allIJKLAsStream(LambdaStrassen.leftToRightGiving0,
+		towardsSolutionAsList.forEach(this::check);
+
+		List<List<V5>> solutions = towardsSolutionAsList.stream()
+				.flatMap(ijklAndAEs -> Strassen.processIJKL(LambdaStrassen.leftToRightGiving0,
 						LambdaStrassen.leftToRightGiving1,
 						LambdaStrassen.preparedPairs,
-						strassenOrderedI,
-						Optional.of(sortedStrassenIJKL.get(1)))
+						ijklAndAEs.aeCandidates,
+						ijklAndAEs.ijkl))
 				.parallel()
-				.filter(sol -> sol.ijkl.k.equals(sortedStrassenIJKL.get(2))
-						&& sol.ijkl.l.equals(sortedStrassenIJKL.get(3)))
 				.collect(Collectors.toList());
 
-		Assert.assertTrue(asForStrassen.size() > 0);
-		System.out.println(asForStrassen);
+		Assert.assertTrue(solutions.size() > 0);
+
+		// {
+		// V5 strassenOrderedL = sortedStrassenIJKL.get(3);
+		// V5 zero = new V5(new int[strassenOrderedL.v0.length]);
+		//
+		// Assert.assertTrue("I is not positive", strassenOrderedI.isStrictlyAfter(zero));
+		//
+		// Assert.assertTrue(Strassen.checkSymetryFromIToL(zero,
+		// orderedNotZero,
+		// strassenOrderedI,
+		// orderedNotZero.indexOf(strassenOrderedL)));
+		// }
+		//
+		// long nbSolutions = Strassen.allIJKLAsStream(LambdaStrassen.leftToRightGiving0,
+		// LambdaStrassen.leftToRightGiving1,
+		// LambdaStrassen.preparedPairs,
+		// strassenOrderedI,
+		// Optional.of(sortedStrassenIJKL.get(1))).parallel().count();
+		//
+		// Assert.assertTrue(nbSolutions > 0);
+		// System.out.println(nbSolutions);
+		//
+		// List<IJKLAndAEs> asForStrassen = Strassen
+		// .allIJKLAsStream(LambdaStrassen.leftToRightGiving0,
+		// LambdaStrassen.leftToRightGiving1,
+		// LambdaStrassen.preparedPairs,
+		// strassenOrderedI,
+		// Optional.of(sortedStrassenIJKL.get(1)))
+		// .parallel()
+		// .filter(sol -> sol.ijkl.k.equals(sortedStrassenIJKL.get(2))
+		// && sol.ijkl.l.equals(sortedStrassenIJKL.get(3)))
+		// .collect(Collectors.toList());
+
+		// Assert.assertTrue(asForStrassen.size() > 0);
+		// System.out.println(asForStrassen);
 
 		// https://fr.wikipedia.org/wiki/Algorithme_de_Strassen
 
@@ -96,36 +149,38 @@ public class TestStrassen {
 		V5 strassenCH = strassenC.multiply(strassenH);
 
 		// Check IAE == 1
-		Assert.assertEquals(1, unsortedStrassenIJKL.get(0).multiplyToScalar(strassenAE));
+		Assert.assertEquals(1, strassenIJKL.i.multiplyToScalar(strassenAE));
 
 		// I in sorted is K in standard: Check KAG == 1
-		Assert.assertEquals(1, unsortedStrassenIJKL.get(indexOfIinUnoredred).multiplyToScalar(strassenAG));
-
-		// [V5 [v0=[-1, -1, 0, 1, 1, 0, 1]], V5 [v0=[0, 1, 1, -1, 0, 0, 1]], V5 [v0=[0, 0, 1, 0, 0, -1, 0]], V5 [v0=[-1,
-		// -1, 1, 1, 0, -1, 0]], V5 [v0=[1, 0, 0, 0, 1, -1, 0]], V5 [v0=[0, 0, 0, 0, 1, 0, 1]], V5 [v0=[-1, 0, 1, 0, 0,
-		// 0, 1]], V5 [v0=[0, -1, 0, 1, 1, -1, 0]], V5 [v0=[1, 1, 1, -1, 0, -1, 0]], V5 [v0=[1, 1, 0, -1, 1, 0, 1]]]
-
-		int nbGoodCandidate = 0;
-		for (IJKLAndAEs candidate : asForStrassen) {
-			if (candidate.aeCandidates.contains(strassenAG)) {
-				nbGoodCandidate++;
-			}
-			if (candidate.aeCandidates.contains(strassenCH)) {
-				nbGoodCandidate++;
-			}
-		}
-		Assert.assertTrue(nbGoodCandidate > 0);
-
-		List<List<V5>> solutions = asForStrassen.stream()
-				.flatMap(ijkl -> Strassen.processIJKL(LambdaStrassen.leftToRightGiving0,
-						LambdaStrassen.leftToRightGiving1,
-						// aeToAE,
-						LambdaStrassen.preparedPairs,
-						ijkl.aeCandidates,
-						ijkl.ijkl))
-				.collect(Collectors.toList());
-
-		Assert.assertTrue(solutions.size() > 0);
+		// Assert.assertEquals(1, unsortedStrassenIJKL.get(indexOfIinUnoredred).multiplyToScalar(strassenAG));
+		//
+		// // [V5 [v0=[-1, -1, 0, 1, 1, 0, 1]], V5 [v0=[0, 1, 1, -1, 0, 0, 1]], V5 [v0=[0, 0, 1, 0, 0, -1, 0]], V5
+		// [v0=[-1,
+		// // -1, 1, 1, 0, -1, 0]], V5 [v0=[1, 0, 0, 0, 1, -1, 0]], V5 [v0=[0, 0, 0, 0, 1, 0, 1]], V5 [v0=[-1, 0, 1, 0,
+		// 0,
+		// // 0, 1]], V5 [v0=[0, -1, 0, 1, 1, -1, 0]], V5 [v0=[1, 1, 1, -1, 0, -1, 0]], V5 [v0=[1, 1, 0, -1, 1, 0, 1]]]
+		//
+		// int nbGoodCandidate = 0;
+		// for (IJKLAndAEs candidate : asForStrassen) {
+		// if (candidate.aeCandidates.contains(strassenAG)) {
+		// nbGoodCandidate++;
+		// }
+		// if (candidate.aeCandidates.contains(strassenCH)) {
+		// nbGoodCandidate++;
+		// }
+		// }
+		// Assert.assertTrue(nbGoodCandidate > 0);
+		//
+		// List<List<V5>> solutions = asForStrassen.stream()
+		// .flatMap(ijkl -> Strassen.processIJKL(LambdaStrassen.leftToRightGiving0,
+		// LambdaStrassen.leftToRightGiving1,
+		// // aeToAE,
+		// LambdaStrassen.preparedPairs,
+		// ijkl.aeCandidates,
+		// ijkl.ijkl))
+		// .collect(Collectors.toList());
+		//
+		// Assert.assertTrue(solutions.size() > 0);
 
 		Set<V5> strassenABCD_EFGH = ImmutableSet.<V5>builder()
 				.add(strassenA,
@@ -139,15 +194,15 @@ public class TestStrassen {
 						strassenH)
 				.build();
 
-		Set<V5> strassenIJKLABCDEFGH =
-				ImmutableSet.<V5>builder().addAll(sortedStrassenIJKL).addAll(strassenABCD_EFGH).build();
-
-		// These are not solutions at all as we mixed IJKL with ABCD and EFGH
-		Set<Set<V5>> unorderedSolutions =
-				solutions.stream().map(l -> ImmutableSet.copyOf(l)).collect(Collectors.toSet());
-
-		// This is a weak check, but still a condition which has to hold true
-		Assert.assertTrue(unorderedSolutions.contains(strassenIJKLABCDEFGH));
+		// Set<V5> strassenIJKLABCDEFGH =
+		// ImmutableSet.<V5>builder().addAll(sortedStrassenIJKL).addAll(strassenABCD_EFGH).build();
+		//
+		// // These are not solutions at all as we mixed IJKL with ABCD and EFGH
+		// Set<Set<V5>> unorderedSolutions =
+		// solutions.stream().map(l -> ImmutableSet.copyOf(l)).collect(Collectors.toSet());
+		//
+		// // This is a weak check, but still a condition which has to hold true
+		// Assert.assertTrue(unorderedSolutions.contains(strassenIJKLABCDEFGH));
 
 		// List<List<V5>> count = new LambdaStrassen().countForIJKL(sortedStrassenIJKL);
 		//
@@ -188,6 +243,43 @@ public class TestStrassen {
 		// });
 		//
 		// Assert.assertEquals(1, count.size());
+	}
+
+	private void check(IJKLAndAEs ijklAndAEs) {
+		// A*E are also candidates for C*F
+
+		// We know IJKL*A*F == 0 => IJKL * A*E*C*F == 0
+
+		int nbKO = 0;
+		for (V5 ae : ijklAndAEs.aeCandidates) {
+			boolean oneCF_ok = false;
+			for (V5 cf : ijklAndAEs.aeCandidates) {
+				boolean notZero =
+						Arrays.asList(ijklAndAEs.ijkl.i, ijklAndAEs.ijkl.j, ijklAndAEs.ijkl.k, ijklAndAEs.ijkl.l)
+								.stream()
+								.filter(ijkl -> 0 != ijkl.multiply(ae).multiplyToScalar(cf))
+								.findAny()
+								.isPresent();
+
+				if (notZero) {
+					// Search for another CF which multiplied with AE and IJKL gives 0
+					continue;
+				} else {
+					// This CF is OK: This AE is eligible
+					oneCF_ok = true;
+					break;
+				}
+			}
+
+			if (!oneCF_ok) {
+				System.out.println("!");
+				nbKO++;
+			}
+		}
+
+		if (nbKO >= 1) {
+			System.out.println(nbKO + " amongst " + ijklAndAEs.aeCandidates.size());
+		}
 	}
 
 	@Test
