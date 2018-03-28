@@ -32,21 +32,6 @@ public class LambdaStrassen implements RequestStreamHandler {
 
 	protected static ObjectMapper objectMapper = new ObjectMapper();
 
-	static final SetMultimap<V5, List<V5>> preparedPairs;
-
-	static final SetMultimap<V5, V5> leftToRightGiving0;
-	static final SetMultimap<V5, V5> leftToRightGiving1;
-
-	static {
-		LOGGER.info("Initializing preparedPairs");
-		preparedPairs = Strassen.preparedPairs();
-		LOGGER.info("Initializing leftToRightFor0");
-		leftToRightGiving0 = Strassen.leftToRightFor0();
-		LOGGER.info("Initializing leftToRightGiving1");
-		leftToRightGiving1 = Strassen.leftToRightGiving1();
-		LOGGER.info("Done initializing");
-	}
-
 	public static class LambdaScrapperSpringConfig {
 
 	}

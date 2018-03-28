@@ -6,12 +6,15 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
-import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import com.amazonaws.services.lambda.runtime.Context;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.google.common.cache.CacheBuilder;
+import com.google.common.cache.CacheLoader;
+import com.google.common.cache.LoadingCache;
+import com.google.common.collect.SetMultimap;
 import com.google.common.io.CharStreams;
 
 /**
@@ -22,9 +25,13 @@ import com.google.common.io.CharStreams;
  */
 public class LambdaStrassenI extends LambdaStrassen {
 
-	public static class LambdaScrapperSpringConfig {
+	static final LoadingCache<StrassenLimits, SetMultimap<V5, List<V5>>> preparedPairs =
+			CacheBuilder.newBuilder().build(CacheLoader.from(limits -> new Strassen(limits).preparedPairs()));
 
-	}
+	static final LoadingCache<StrassenLimits, SetMultimap<V5, V5>> leftToRightGiving0 =
+			CacheBuilder.newBuilder().build(CacheLoader.from(limits -> new Strassen(limits).leftToRightFor0()));
+	static final LoadingCache<StrassenLimits, SetMultimap<V5, V5>> leftToRightGiving1 =
+			CacheBuilder.newBuilder().build(CacheLoader.from(limits -> new Strassen(limits).leftToRightGiving1()));
 
 	// Required by AWS Lambda as .handleRequest is not static
 	// https://docs.aws.amazon.com/lambda/latest/dg/best-practices.html
@@ -49,18 +56,19 @@ public class LambdaStrassenI extends LambdaStrassen {
 	}
 
 	public Stream<List<V5>> countForIJK(QueryI indexI) {
-		Stream<IJKLAndAEs> stream = Strassen.allIJKLAsStream(LambdaStrassen.leftToRightGiving0,
-				LambdaStrassen.leftToRightGiving1,
-				Stream.of(indexI.i),
-				Optional.empty(),
-				Optional.empty()).parallel();
-
-		return stream.flatMap(ijkl -> Strassen.processIJKL(leftToRightGiving0,
-				leftToRightGiving1,
-				// aeToAE,
-				preparedPairs,
-				ijkl.aeCandidates,
-				ijkl.ijkl));
+		// Stream<IJKLAndAEs> stream = Strassen.allIJKLAsStream(LambdaStrassen.leftToRightGiving0,
+		// LambdaStrassen.leftToRightGiving1,
+		// Stream.of(indexI.i),
+		// Optional.empty(),
+		// Optional.empty()).parallel();
+		//
+		// return stream.flatMap(ijkl -> Strassen.processIJKL(leftToRightGiving0,
+		// leftToRightGiving1,
+		// // aeToAE,
+		// preparedPairs,
+		// ijkl.aeCandidates,
+		// ijkl.ijkl));
+		return Stream.empty();
 	}
 
 }

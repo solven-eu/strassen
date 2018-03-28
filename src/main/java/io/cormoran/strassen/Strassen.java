@@ -13,7 +13,6 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.LongAdder;
-import java.util.function.IntFunction;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
@@ -42,48 +41,44 @@ import cormoran.pepper.logging.PepperLogHelper;
 import cormoran.pepper.thread.PepperExecutorsHelper;
 
 public class Strassen {
-	public static final ImmutableSet<List<String>> FORCE_GROWING = ImmutableSet.<List<String>>builder()
-			// .add(Arrays.<String>asList("a", "e")
-			// // , Arrays.<String>asList("e", "g"), Arrays.<String>asList("a", "g")
-			// ).add(Arrays.<String>asList("c", "f")
-			// // , Arrays.<String>asList("f", "h"), Arrays.<String>asList("c", "h")
-			// )
-			// // Ensure second matrix of ones is strictly after the first one
-			// .add(Arrays.<String>asList("a", "c"))
-			// // Transitivity
-			// .add(Arrays.<String>asList("a", "f"))
-			.build();
-
 	protected static final Logger LOGGER = LoggerFactory.getLogger(Strassen.class);
 
-	public static int power = 5;
+	private final StrassenLimits limits;
 
-	// -1, 0, 1 -> 3 values
-	public static final int minValue = -1;
-	public static final int maxValue = 1;
-	public static final int nbValues = maxValue - minValue + 1;
+	public Strassen(StrassenLimits strassenLimits) {
+		this.limits = strassenLimits;
+	}
 
 	public static void main(String[] args) throws MalformedObjectNameException, InstanceNotFoundException {
 		new GCInspector().afterPropertiesSet();
 
+		// (5,1) -> no solution
+		// Strassen strassen = new Strassen(new StrassenLimits(5, 1));
+
+		// (5,2) -> very slow
+		// Strassen strassen = new Strassen(new StrassenLimits(5, 1));
+
+		Strassen strassen = new Strassen(new StrassenLimits(6, 1));
+
 		// Should be 3^5
-		LOGGER.info("Count Vectors: " + all().count());
+		LOGGER.info("Count Vectors: " + strassen.all().count());
 
 		// V5 zero = new V5(0, 0, 0, 0, 0);
-		long count = newStreamOfPairs().filter(pair -> 0 == pair.get(0).multiplyToScalar(pair.get(1))).count();
+		long count = strassen.newStreamOfPairs().filter(pair -> 0 == pair.get(0).multiplyToScalar(pair.get(1))).count();
 
 		LOGGER.info("Count pair giving 0: " + count);
 
-		long countPairsTo1 = newStreamOfPairs().filter(pair -> 1 == pair.get(0).multiplyToScalar(pair.get(1))).count();
+		long countPairsTo1 =
+				strassen.newStreamOfPairs().filter(pair -> 1 == pair.get(0).multiplyToScalar(pair.get(1))).count();
 
 		LOGGER.info("Count pair giving 1: " + countPairsTo1);
 
-		SetMultimap<V5, V5> leftToRightGiving0 = leftToRightFor0();
-		SetMultimap<V5, V5> leftToRightGiving1 = leftToRightGiving1();
+		SetMultimap<V5, V5> leftToRightGiving0 = strassen.leftToRightFor0();
+		SetMultimap<V5, V5> leftToRightGiving1 = strassen.leftToRightGiving1();
 
 		LOGGER.info("_2 Hash done");
 
-		long countIJKL = allIJKLAsStream().count();
+		long countIJKL = strassen.allIJKLAsStream().parallel().count();
 
 		LOGGER.info("Count IJKL: " + countIJKL);
 
@@ -93,7 +88,8 @@ public class Strassen {
 		AtomicInteger countOK = new AtomicInteger();
 		final long max;
 		if (aws) {
-			long countIJK = allIJKLAsStream().parallel()
+			long countIJK = strassen.allIJKLAsStream()
+					.parallel()
 					.map(ijkl -> new QueryIJK(ijkl.ijkl.i, ijkl.ijkl.j, ijkl.ijkl.k))
 					.distinct()
 					.count();
@@ -108,7 +104,7 @@ public class Strassen {
 				max,
 				PepperLogHelper.getNicePercentage(progress.longValue(), max)), 1, 1, TimeUnit.SECONDS);
 
-		SetMultimap<V5, List<V5>> preparedPairs = preparedPairs();
+		SetMultimap<V5, List<V5>> preparedPairs = strassen.preparedPairs();
 
 		ICormoranLambdaScrapper catService;
 		if (aws) {
@@ -123,7 +119,8 @@ public class Strassen {
 
 		Set<QueryIJK> ijkSubmitted = Sets.newConcurrentHashSet();
 
-		long countSolutions = allIJKLAsStream(leftToRightGiving0, leftToRightGiving1).parallel()
+		long countSolutions = strassen.allIJKLAsStream(leftToRightGiving0, leftToRightGiving1)
+				.parallel()
 				.peek(ijkl -> progress.increment())
 				.flatMap(ijklAndAEs -> {
 					if (aws) {
@@ -160,7 +157,7 @@ public class Strassen {
 							return Stream.empty();
 						}
 					} else {
-						return processIJKL(leftToRightGiving0,
+						return strassen.processIJKL(leftToRightGiving0,
 								leftToRightGiving1,
 								preparedPairs,
 								ijklAndAEs.aeCandidates,
@@ -174,11 +171,13 @@ public class Strassen {
 	}
 
 	@Deprecated
-	private static Stream<IJKLAndAEs> allIJKLAsStream() {
+	private Stream<IJKLAndAEs> allIJKLAsStream() {
 		return allIJKLAsStream(leftToRightFor0(), leftToRightGiving1());
 	}
 
-	public static SetMultimap<V5, V5> leftToRightGiving1() {
+	public SetMultimap<V5, V5> leftToRightGiving1() {
+		LOGGER.info("Initializing leftToRightFor1");
+
 		SetMultimap<V5, V5> leftToRightGiving1 = MultimapBuilder.linkedHashKeys().linkedHashSetValues().build();
 
 		newStreamOfPairs().filter(pair -> 1 == pair.get(0).multiplyToScalar(pair.get(1)))
@@ -186,7 +185,9 @@ public class Strassen {
 		return leftToRightGiving1;
 	}
 
-	public static SetMultimap<V5, V5> leftToRightFor0() {
+	public SetMultimap<V5, V5> leftToRightFor0() {
+		LOGGER.info("Initializing leftToRightFor0");
+
 		SetMultimap<V5, V5> leftToRightGiving0 = MultimapBuilder.linkedHashKeys().linkedHashSetValues().build();
 
 		// We have no interest in vectors full of 0s
@@ -200,7 +201,9 @@ public class Strassen {
 		return leftToRightGiving0;
 	}
 
-	public static SetMultimap<V5, List<V5>> preparedPairs() {
+	public SetMultimap<V5, List<V5>> preparedPairs() {
+		LOGGER.info("Initializing preparedPairs");
+
 		SetMultimap<V5, List<V5>> aeToAE = MultimapBuilder.hashKeys().hashSetValues().build();
 
 		// e is is strictly after a
@@ -215,7 +218,7 @@ public class Strassen {
 		return aeToAE;
 	}
 
-	public static Stream<List<V5>> processIJKL(SetMultimap<V5, V5> leftToRightGiving0,
+	public Stream<List<V5>> processIJKL(SetMultimap<V5, V5> leftToRightGiving0,
 			SetMultimap<V5, V5> leftToRightGiving1,
 			SetMultimap<V5, List<V5>> aeToAAndE,
 			Set<V5> okAE,
@@ -225,27 +228,6 @@ public class Strassen {
 		V5 k = ijkl.k;
 		V5 l = ijkl.l;
 
-		if (false) {
-			System.out.println("------------");
-
-			System.out.println("i " + i);
-			System.out.println("j " + j);
-			System.out.println("k " + k);
-			System.out.println("l " + l);
-		}
-
-		// V5 strassenA = new V5(new int[] { 1, 0, 1, 0, 1, -1, 0 });
-		// V5 strassenB = new V5(new int[] { 0, 1, 0, 0, 0, 1, 0 });
-		// V5 strassenC = new V5(new int[] { 0, 0, 0, 0, 1, 0, 1 });
-		//
-		// V5 strassenE = new V5(new int[] { 1, 1, 0, -1, 0, 1, 0 });
-		// V5 strassenG = new V5(new int[] { 0, 0, 1, 0, 0, 1, 0 });
-		// V5 strassenH = new V5(new int[] { 1, 0, -1, 0, 1, 0, 1 });
-
-		// long countNormal = okAE.stream().flatMap(ae -> aeToAAndE.get(ae).stream()).count();
-		// long countDistinct = okAE.stream().flatMap(ae -> aeToAAndE.get(ae).stream()).distinct().count();
-		// long countA = okAE.stream().flatMap(ae -> aeToAAndE.get(ae).stream()).map(e -> e.get(0)).distinct().count();
-
 		Map<V5, List<List<V5>>> aToEs =
 				okAE.stream().flatMap(ae -> aeToAAndE.get(ae).stream()).collect(Collectors.groupingBy(e -> e.get(0)));
 
@@ -254,11 +236,6 @@ public class Strassen {
 		}
 		return aToEs.entrySet().stream().flatMap(listAE -> {
 			V5 a = listAE.getKey();
-
-			// if (a.equals(strassenA) && e.equals(strassenG)) {
-			// System.out.println("a:" + a);
-			// System.out.println("e:" + e);
-			// }
 
 			V5 ia = i.multiply(a);
 			V5 ja = j.multiply(a);
@@ -337,11 +314,7 @@ public class Strassen {
 
 				Set<V5> bForBEAndCE = intersect3(bForIE, bForKE, bForLE).stream().collect(Collectors.toSet());
 
-				// Enforce ordering as early as possible
-				Set<V5> cForCE =
-						Sets.intersection(applyOrdering("e", e, "c", applyOrdering("a", a, "c", bForBEAndCE)), cForJE)
-								.stream()
-								.collect(Collectors.toSet());
+				Set<V5> cForCE = Sets.intersection(bForBEAndCE, cForJE).stream().collect(Collectors.toSet());
 				if (cForCE.isEmpty()) {
 					return Stream.empty();
 				}
@@ -370,11 +343,7 @@ public class Strassen {
 						.build()
 						.entrySet()
 						.stream()
-						.collect(Collectors.toMap(ee -> ee.getKey(),
-								ee -> applyOrdering("a",
-										a,
-										ee.getKey(),
-										applyOrdering("e", e, ee.getKey(), ee.getValue()))));
+						.collect(Collectors.toMap(ee -> ee.getKey(), ee -> ee.getValue()));
 
 				Entry<String, Set<V5>> min = selectMin(nameToValues);
 
@@ -434,9 +403,8 @@ public class Strassen {
 		return Sets.intersection(intermediate, max);
 	}
 
-	private static final int NB_BLOCKS = 4;
-
-	static List<V5> orderedNotZero(int length) {
+	@Deprecated
+	List<V5> orderedNotZero(int length) {
 		V5 zero = new V5(new int[length]);
 
 		// smallToBig
@@ -444,7 +412,7 @@ public class Strassen {
 		return orderedNotZero;
 	}
 
-	public static Stream<IJKLAndAEs> allIJKLAsStream(SetMultimap<V5, V5> leftToRightGiving0,
+	public Stream<IJKLAndAEs> allIJKLAsStream(SetMultimap<V5, V5> leftToRightGiving0,
 			SetMultimap<V5, V5> leftToRightGiving1) {
 		// We can not swap IJKL, else it would implies exchanges in the multiplied ABCD|EFGH (e.g. if we exchange I and
 		// J, then IAE === 1 turns to JAE === 1 which is false). However, we can swap
@@ -453,12 +421,12 @@ public class Strassen {
 		// if IJKL are rows, we name PQRST the columns (when looking for 5 multiplications). If we enforce PQRST to be
 		// in growing order, then I is itself growing (-1s, then 0s, then 1s)
 
-		Stream<V5> candiatesI = all().sorted().filter(v -> v.isSoftlyGrowing()).collect(Collectors.toList()).stream();
+		Stream<V5> candiatesI = all().filter(v -> v.isSoftlyGrowing()).sorted().collect(Collectors.toList()).stream();
 
 		return allIJKLAsStream(leftToRightGiving0, leftToRightGiving1, candiatesI, Optional.empty(), Optional.empty());
 	}
 
-	public static Stream<IJKLAndAEs> allIJKLAsStream(SetMultimap<V5, V5> leftToRightGiving0,
+	public Stream<IJKLAndAEs> allIJKLAsStream(SetMultimap<V5, V5> leftToRightGiving0,
 			SetMultimap<V5, V5> leftToRightGiving1,
 			Stream<V5> candiatesI,
 			Optional<V5> filterJ,
@@ -519,8 +487,15 @@ public class Strassen {
 								if (aeForIJKL.isEmpty()) {
 									return Stream.empty();
 								}
+
+								Set<V5> checkedAE = checkAE(vectorI, vectorJ, vectorK, vectorL, aeForIJKL);
+
+								if (checkedAE.isEmpty()) {
+									return Stream.empty();
+								}
+
 								return Stream.of(
-										new IJKLAndAEs(new QueryIJKL(vectorI, vectorJ, vectorK, vectorL), aeForIJKL));
+										new IJKLAndAEs(new QueryIJKL(vectorI, vectorJ, vectorK, vectorL), checkedAE));
 							});
 
 				});
@@ -528,21 +503,41 @@ public class Strassen {
 		});
 	}
 
-	private static Stream<V5> generateJGivenQBiggerThanP(
-			// IntFunction<List<V5>> orderedNotZero,
-			V5 vectorI,
-			V5... vectorJK) {
-		// Given I, or J or K, want respectively all J, K or L that validate the constrain P < Q < R < S < T
-		// TODO: Could it be P <= Q <= R <= S <= T?
+	private Set<V5> checkAE(V5 vectorI, V5 vectorJ, V5 vectorK, V5 vectorL, Set<V5> aeCandidates) {
+		// A*E are also candidates for C*F
+
+		// We know IJKL*A*F == 0 => IJKL * A*E*C*F == 0
+
+		return aeCandidates.stream().filter(ae -> {
+			for (V5 cf : aeCandidates) {
+				boolean notZero = Arrays.asList(vectorI, vectorJ, vectorK, vectorL)
+						.stream()
+						.filter(ijkl -> 0 != ijkl.multiply(ae).multiplyToScalar(cf))
+						.findAny()
+						.isPresent();
+
+				if (notZero) {
+					// Search for another CF which multiplied with AE and IJKL gives 0
+					continue;
+				} else {
+					// This CF is OK: This AE is eligible
+					return true;
+				}
+			}
+
+			// No cf has been spot validating this ae: this ae can be rejected
+			return false;
+		}).collect(Collectors.toSet());
+	}
+
+	private Stream<V5> generateJGivenQBiggerThanP(V5 vectorI, V5... vectorJK) {
+		// Given I, or J or K, want respectively all J, K or L that validate the constrain P <= Q <= R <= S <= T
+		// TODO: Could it be P < Q < R < S < T?
 
 		assert vectorJK.length <= 2;
 
-		// if (vectorJK.length == 2) {
-		// // We are generating vectorL: the constrain
-		// }
-
 		// First column can take any value: P can take any value
-		Stream<Partial> stream = IntStream.rangeClosed(minValue, maxValue)
+		Stream<Partial> stream = IntStream.rangeClosed(limits.minValue, limits.maxValue)
 				.mapToObj(p0 -> new Partial(new int[] { p0 }, vectorI, vectorJK));
 
 		// Start from 1 as P has already been processed
@@ -552,7 +547,7 @@ public class Strassen {
 				// to generate Q so that Q >= P
 				int minQ = computeMinQ(partial.partialL, vectorI, vectorJK);
 
-				return IntStream.rangeClosed(minQ, maxValue).mapToObj(q -> {
+				return IntStream.rangeClosed(minQ, limits.maxValue).mapToObj(q -> {
 					int[] partialL = Arrays.copyOf(partial.partialL, partial.partialL.length + 1);
 					partialL[partial.partialL.length] = q;
 					return new Partial(partialL, vectorI, vectorJK);
@@ -561,21 +556,6 @@ public class Strassen {
 		}
 
 		return stream.map(partial -> new V5(partial.partialL));
-
-		// // First column can take any value: P can take any value
-		// return IntStream.rangeClosed(minValue, maxValue).mapToObj(p0 -> p0).flatMap(p0 -> {
-		// // Given Current P vector (full if we provided IJK, or partial if provided only I or IJ), then we want to
-		// // generate Q so that Q >= P
-		// int minQ = computeMinQ(p0, vectorI, vectorJK);
-		//
-		// return IntStream.rangeClosed(minQ, maxValue).mapToObj(q0 -> q0).flatMap(q0 -> {
-		// return Stream.empty();
-		// });
-		// });
-
-		// return IntStream.range(0, vectorI.v0.length).mapToObj(i -> i).flatMap(indexStrictlyBigger -> {
-		// return generateAfter(vectorI, indexStrictlyBigger);
-		// });
 	}
 
 	private static class Partial {
@@ -610,60 +590,6 @@ public class Strassen {
 			return partialP[partialP.length - 1] + 1;
 		}
 	}
-
-	// public static Stream<V5> generateAfter(V5 vectorI, int indexStrictlyBigger) {
-	//
-	// // Strictly before indexStrictlyBigger: same as I
-	// // On indexStrictlyBigger: strictly after I
-	// // Strictly after indexStrictlyBigger: any value
-	//
-	// if (indexStrictlyBigger == 0) {
-	// // if indexStrictlyBigger == 0, it means we allow the first index to have the same value (J(0) == I(0))
-	//
-	// } else {
-	//
-	// if (indexStrictlyBigger >= 0 && vectorI.v0[indexStrictlyBigger] == maxValue) {
-	// // already maxed
-	// return Stream.empty();
-	// }
-	//
-	// // Include maxValue as possible value
-	// return IntStream.rangeClosed(vectorI.v0[indexStrictlyBigger] + 1, maxValue).mapToObj(i -> i).flatMap(
-	// striclyBigger -> {
-	// // Before indexStrictlyBigger: same as I
-	// int[] v0 = vectorI.v0.clone();
-	//
-	// // On indexStrictlyBigger : strictly greater than I
-	// v0[indexStrictlyBigger] = striclyBigger;
-	//
-	// // After indexStrictlyBigger: any value
-	// for (int i = indexStrictlyBigger + 1; i < v0.length; i++) {
-	// v0[i] = minValue;
-	// }
-	//
-	// // We have n slots ranging from minValue to maxValue
-	// final long limit = LongMath.checkedPow(nbValues, vectorI.v0.length - indexStrictlyBigger - 1);
-	//
-	// V5 first = new V5(v0);
-	//
-	// return Stream.iterate(first, v -> v.increment(minValue, maxValue)).limit(limit);
-	// });
-	// }
-	// }
-
-	// public static boolean checkSymetryFromIToL(V5 zero, List<V5> orderedNotZero, V5 absI, int indexL) {
-	// V5 vectorL = orderedNotZero.get(indexL);
-	//
-	// if (vectorL.isStrictlyAfter(zero)) {
-	// // vectorL == absL => we check L is after I
-	// return vectorL.isStrictlyAfter(absI);
-	// } else {
-	// // vectorL == -1*absL
-	// V5 absL = vectorL.multiplyByScalar(-1);
-	//
-	// return absL.isStrictlyAfter(absI);
-	// }
-	// }
 
 	private static Stream<List<V5>> toStream(QueryIJKL list,
 			V5 a,
@@ -716,6 +642,9 @@ public class Strassen {
 							}
 
 							return min6.getValue().stream().flatMap(h -> {
+								System.out.println(a.multiply(e).multiplyToScalar(list.i));
+								System.out.println(b.multiply(g).multiplyToScalar(list.l));
+
 								LOGGER.info("One solution: i={} j={} k={} l={} a={} b={} c={} d={} e={} f={} g={} h={}",
 										list.i,
 										list.j,
@@ -743,41 +672,8 @@ public class Strassen {
 	}
 
 	private static Map<String, Set<V5>> reduce(QueryIJKL ijkl, Map<String, Set<V5>> nameToValues, String minKey, V5 b) {
-		return nameToValues.entrySet()
-				.stream()
-				.filter(ee -> !ee.getKey().equals(minKey))
-				.collect(Collectors.toMap(ee -> ee.getKey(),
-						ee -> applyOrdering(minKey,
-								b,
-								ee.getKey(),
-								applyConditions(ijkl, minKey, b, ee.getKey(), ee.getValue()))));
-	}
-
-	/**
-	 * Given (ae,be,ag,bg), we have multiple symmetries which can be broken by a < e (as a and e are exchangeable), e <
-	 * b, a < g
-	 * 
-	 * @param selectedKey
-	 * @param selected
-	 * @param allowedKey
-	 * @param allowed
-	 * @return
-	 */
-	private static Set<V5> applyOrdering(String selectedKey, V5 selected, String allowedKey, Set<V5> allowed) {
-		if (FORCE_GROWING.isEmpty()) {
-			// We have have removed all growing onsrain in some version of this algorithm
-			return allowed;
-		}
-
-		ImmutableList<String> coming = ImmutableList.of(selectedKey, allowedKey);
-
-		if (FORCE_GROWING.contains(coming)) {
-			return allowed.stream().filter(v5 -> v5.isStrictlyAfter(selected)).collect(Collectors.toSet());
-		} else if (FORCE_GROWING.contains(coming.reverse())) {
-			return allowed.stream().filter(v5 -> selected.isStrictlyAfter(v5)).collect(Collectors.toSet());
-		} else {
-			return allowed;
-		}
+		return nameToValues.entrySet().stream().filter(ee -> !ee.getKey().equals(minKey)).collect(Collectors
+				.toMap(ee -> ee.getKey(), ee -> applyConditions(ijkl, minKey, b, ee.getKey(), ee.getValue())));
 	}
 
 	private static Set<String> ABCD = ImmutableSet.of("a", "b", "c", "d");
@@ -839,11 +735,11 @@ public class Strassen {
 		}
 	}
 
-	private static Stream<List<V5>> newStreamOfPairs() {
+	private Stream<List<V5>> newStreamOfPairs() {
 		return newStreamOfNlets(2);
 	}
 
-	private static Stream<List<V5>> newStreamOfNlets(int n) {
+	private Stream<List<V5>> newStreamOfNlets(int n) {
 		List<Set<V5>> asList = new ArrayList<>();
 
 		IntStream.range(0, n).forEach(i -> asList.add(all().map(v5 -> v5).collect(Collectors.toSet())));
@@ -851,15 +747,13 @@ public class Strassen {
 		return Sets.cartesianProduct(asList).stream().map(l -> ImmutableList.copyOf(l));
 	}
 
-	private static Stream<V5> all() {
-		// +1 for 0
-		int nbValues = maxValue - minValue + 1;
-		final long limit = LongMath.checkedPow(nbValues, power);
+	private Stream<V5> all() {
+		final long limit = LongMath.checkedPow(limits.nbValues, limits.power);
 
 		// First value: min values everywhere
-		int[] array = IntStream.range(0, power).map(i -> minValue).toArray();
+		int[] array = IntStream.range(0, limits.power).map(i -> limits.minValue).toArray();
 
 		// TODO: Check the stream is sorted
-		return Stream.iterate(new V5(array), v5 -> v5.increment(minValue, maxValue)).limit(limit);
+		return Stream.iterate(new V5(array), v5 -> v5.increment(limits.minValue, limits.maxValue)).limit(limit);
 	}
 }

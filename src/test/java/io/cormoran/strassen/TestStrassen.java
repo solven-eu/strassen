@@ -32,14 +32,15 @@ public class TestStrassen {
 
 	@Test
 	public void testCheckStrassen() {
-		Strassen.power = 7;
+		StrassenLimits strassenLimits = new StrassenLimits(7, 1);
+		Strassen strassen = new Strassen(strassenLimits);
 
 		QueryIJKL strassenIJKL = new QueryIJKL(Arrays.asList(1, 0, 0, 1, -1, 0, 1),
 				Arrays.asList(0, 1, 0, 1, 0, 0, 0),
 				Arrays.asList(0, 0, 1, 0, 1, 0, 0),
 				Arrays.asList(1, -1, 1, 0, 0, 1, 0));
 
-		List<V5> unsorted_pqrst = IntStream.range(0, Strassen.power).mapToObj(i -> {
+		List<V5> unsorted_pqrst = IntStream.range(0, strassenLimits.power).mapToObj(i -> {
 			return new V5(new int[] { strassenIJKL.i.v0[i],
 					strassenIJKL.j.v0[i],
 					strassenIJKL.k.v0[i],
@@ -48,7 +49,7 @@ public class TestStrassen {
 
 		List<V5> sorted_pqrst = unsorted_pqrst.stream().sorted().collect(Collectors.toList());
 
-		int[] sortIndexes = IntStream.range(0, Strassen.power)
+		int[] sortIndexes = IntStream.range(0, strassenLimits.power)
 				.map(index -> sorted_pqrst.indexOf(unsorted_pqrst.get(index)))
 				.toArray();
 
@@ -75,11 +76,12 @@ public class TestStrassen {
 		// Assert.assertTrue(Strassen.generateAfter(sortedJ, 0).collect(Collectors.toList()).contains(sortedK));
 		// Assert.assertTrue(Strassen.generateAfter(sortedK, 0).collect(Collectors.toList()).contains(sortedL));
 
-		Stream<IJKLAndAEs> towardsSolution = Strassen.allIJKLAsStream(LambdaStrassen.leftToRightGiving0,
-				LambdaStrassen.leftToRightGiving1,
-				Stream.of(sortedI),
-				Optional.of(sortedJ),
-				Optional.of(sortedK));
+		Stream<IJKLAndAEs> towardsSolution =
+				strassen.allIJKLAsStream(LambdaStrassenI.leftToRightGiving0.getUnchecked(strassenLimits),
+						LambdaStrassenI.leftToRightGiving1.getUnchecked(strassenLimits),
+						Stream.of(sortedI),
+						Optional.of(sortedJ),
+						Optional.of(sortedK));
 
 		List<IJKLAndAEs> towardsSolutionAsList = towardsSolution.parallel().collect(Collectors.toList());
 		Assert.assertTrue(towardsSolutionAsList.size() > 0);
@@ -87,9 +89,10 @@ public class TestStrassen {
 		towardsSolutionAsList.forEach(this::check);
 
 		List<List<V5>> solutions = towardsSolutionAsList.stream()
-				.flatMap(ijklAndAEs -> Strassen.processIJKL(LambdaStrassen.leftToRightGiving0,
-						LambdaStrassen.leftToRightGiving1,
-						LambdaStrassen.preparedPairs,
+				.flatMap(ijklAndAEs -> strassen.processIJKL(
+						LambdaStrassenI.leftToRightGiving0.getUnchecked(strassenLimits),
+						LambdaStrassenI.leftToRightGiving1.getUnchecked(strassenLimits),
+						LambdaStrassenI.preparedPairs.getUnchecked(strassenLimits),
 						ijklAndAEs.aeCandidates,
 						ijklAndAEs.ijkl))
 				.parallel()
@@ -284,8 +287,7 @@ public class TestStrassen {
 
 	@Test
 	public void testVectorsGiving1() {
-		Strassen.power = 5;
-		SetMultimap<V5, V5> to1 = Strassen.leftToRightGiving1();
+		SetMultimap<V5, V5> to1 = new Strassen(new StrassenLimits(5, 1)).leftToRightGiving1();
 
 		V5 problem = new V5(new int[] { -1, -1, -1, -1, -1 });
 		V5 knownSolution = new V5(new int[] { -1, 0, 0, 0, 0 });
