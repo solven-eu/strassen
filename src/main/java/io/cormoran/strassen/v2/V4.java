@@ -1,5 +1,6 @@
 package io.cormoran.strassen.v2;
 
+import java.io.Serializable;
 import java.util.Objects;
 
 import com.google.common.primitives.Ints;
@@ -10,10 +11,12 @@ import com.google.common.primitives.Ints;
  * @author Benoit Lacelle
  *
  */
-public class V4 {
+public class V4 implements Serializable {
+	private static final long serialVersionUID = -7277232825394300174L;
+
 	// If 1, we allow from -1 to 1. If 2, we allow from -2 to 2
 	public static final int MAX_VALUE = 1;
-	// +1 to include 0
+	// From -max to +max, including 0
 	private static final int NB_VALUES = MAX_VALUE * 2 + 1;
 
 	public static final int NB_BLOCK = 4;
