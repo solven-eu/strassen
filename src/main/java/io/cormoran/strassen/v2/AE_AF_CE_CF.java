@@ -26,7 +26,7 @@ public class AE_AF_CE_CF implements Serializable {
 
 	@Override
 	public int hashCode() {
-		return Objects.hash(ae, af, cf, ce);
+		return Objects.hash(ae, af, ce, cf);
 	}
 
 	@Override
@@ -42,8 +42,8 @@ public class AE_AF_CE_CF implements Serializable {
 		}
 		AE_AF_CE_CF other = (AE_AF_CE_CF) obj;
 		return Objects.equals(ae, other.ae) && Objects.equals(af, other.af)
-				&& Objects.equals(cf, other.cf)
-				&& Objects.equals(ce, other.ce);
+				&& Objects.equals(ce, other.ce)
+				&& Objects.equals(cf, other.cf);
 	}
 
 }

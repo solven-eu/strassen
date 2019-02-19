@@ -6,6 +6,8 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.Serializable;
 import java.io.UncheckedIOException;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -102,32 +104,139 @@ public class RunStrassen {
 				combinationsToAlphaBetaGammaDelta.keySet().size(),
 				alphaBetaGammaDeltaToCombinations.size());
 
-		Multimaps.asMap(alphaBetaGammaDeltaToCombinations).forEach((abgd, combinations) -> {
-			Set<AE4> alphaTo0 = gives0(nbV4AE4Gives1, abgd.alpha);
-			Set<AE4> betaTo0 = gives0(nbV4AE4Gives1, abgd.beta);
-			Set<AE4> gammaTo0 = gives0(nbV4AE4Gives1, abgd.gamma);
-			Set<AE4> deltaTo0 = gives0(nbV4AE4Gives1, abgd.delta);
+		// List<V4> as = allV4s;
+		// List<V4> efghs = allV4s;
 
+		// Multimap<List<V4>, AE_AF_CE_CF> AEFGH_To_AE_AF_AG_AH =
+		// MultimapBuilder.linkedHashKeys().arrayListValues().build();
+		// Lists.cartesianProduct(allV4s, allV4s, allV4s, allV4s, allV4s).forEach(l -> {
+		// V4 a = l.get(0);
+		// V4 e = l.get(1);
+		// V4 f = l.get(2);
+		// V4 g = l.get(3);
+		// V4 h = l.get(4);
+		//
+		// AE4 ae = VectorOperations.mul(a, e);
+		// AE4 af = VectorOperations.mul(a, f);
+		// AE4 ag = VectorOperations.mul(a, g);
+		// AE4 ah = VectorOperations.mul(a, h);
+		// AEFGH_To_AE_AF_AG_AH.put(Arrays.asList(a, e, f, g, h), new AE_AF_CE_CF(ae, af, ag, ah));
+		// });
+		// Multimap<AE_AF_CE_CF, List<V4>> AE_AF_AG_AH_toAEFGH =
+		// MultimapBuilder.linkedHashKeys().linkedHashSetValues().build();
+		// Multimaps.invertFrom(AEFGH_To_AE_AF_AG_AH, AE_AF_AG_AH_toAEFGH);
+
+		// AEFGH_To_AE_AF_AG_AH.keySet().size();
+		// AE_AF_AG_AH_toAEFGH.keySet().size();
+
+		Multimaps.asMap(alphaBetaGammaDeltaToCombinations).forEach((abgd, combinations) -> {
+			Set<AE4> alphaTo0 = gives0(nbV4AE4Gives0, abgd.alpha);
+			Set<AE4> betaTo0 = gives0(nbV4AE4Gives0, abgd.beta);
+			Set<AE4> gammaTo0 = gives0(nbV4AE4Gives0, abgd.gamma);
+			Set<AE4> deltaTo0 = gives0(nbV4AE4Gives0, abgd.delta);
+
+			// AG and AH gives 0 against Alpha, Beta, Gamma, Delta
 			Set<AE4> abgdTo0 =
 					Sets.intersection(Sets.intersection(alphaTo0, betaTo0), Sets.intersection(gammaTo0, deltaTo0));
 
 			Lists.cartesianProduct(combinations, combinations).stream().forEach(combination -> {
 				AE_AF_CE_CF ae_af_ce_cf = combination.get(0);
+				AE4 ae = ae_af_ce_cf.ae;
+				AE4 af = ae_af_ce_cf.af;
 				AE_AF_CE_CF bg_bh_dg_dh = combination.get(1);
 
 				Set<AE4> ags = abgdTo0.stream()
+						// AE and BG constrains AG
 						.filter(ag -> checkAEZeroesIncompatibility3(ae_af_ce_cf.ae, bg_bh_dg_dh.ae, ag))
+						// AE and DG constrains AG
+						.filter(ag -> checkAEZeroesIncompatibility3(ae_af_ce_cf.ae, bg_bh_dg_dh.ce, ag))
+						// AF and BG constrains AG
+						.filter(ag -> checkAEZeroesIncompatibility3(ae_af_ce_cf.af, bg_bh_dg_dh.ae, ag))
+						// AF and DG constrains AG
+						.filter(ag -> checkAEZeroesIncompatibility3(ae_af_ce_cf.af, bg_bh_dg_dh.ce, ag))
 						.collect(Collectors.toCollection(LinkedHashSet::new));
 
 				Set<AE4> ahs = abgdTo0.stream()
+						// AE and BH constrains AH
 						.filter(ah -> checkAEZeroesIncompatibility3(ae_af_ce_cf.ae, bg_bh_dg_dh.af, ah))
+						// AE and DH constrains AH
+						.filter(ah -> checkAEZeroesIncompatibility3(ae_af_ce_cf.ae, bg_bh_dg_dh.cf, ah))
+						// AF and BH constrains AH
+						.filter(ah -> checkAEZeroesIncompatibility3(ae_af_ce_cf.af, bg_bh_dg_dh.af, ah))
+						// AF and DH constrains AH
+						.filter(ah -> checkAEZeroesIncompatibility3(ae_af_ce_cf.af, bg_bh_dg_dh.cf, ah))
 						.collect(Collectors.toCollection(LinkedHashSet::new));
 
+				Sets.cartesianProduct(ags, ahs).stream().forEach(ag_ah -> {
+					AE4 ag = ag_ah.get(0);
+					AE4 ah = ag_ah.get(1);
+
+					List<List<V4>> aefghs = new ArrayList<>();
+					allV4s.stream().forEach(a -> {
+
+						LOGGER.info("a={}", a);
+						allV4s.stream().filter(e -> ae.equals(VectorOperations.mul(a, e))).forEach(e -> {
+
+							LOGGER.info("e={}", e);
+							allV4s.stream().filter(f -> af.equals(VectorOperations.mul(a, f))).forEach(f -> {
+								allV4s.stream().filter(g -> ag.equals(VectorOperations.mul(a, g))).forEach(g -> {
+									allV4s.stream().filter(h -> ah.equals(VectorOperations.mul(a, h))).forEach(h -> {
+										aefghs.add(Arrays.asList(a, e, f, g, h));
+									});
+								});
+							});
+						});
+
+					});
+
+					LOGGER.info("#aefgh: {}", aefghs.size());
+
+					// AE_AF_CE_CF ae_af_ag_ah = new AE_AF_CE_CF(ae, af, ag, ah);
+					// AE_AF_AG_AH_toAEFGH.get(ae_af_ag_ah).forEach(aefgh -> {
+					// V4 a = aefgh.get(0);
+					// V4 e = aefgh.get(1);
+					// V4 f = aefgh.get(2);
+					// V4 g = aefgh.get(3);
+					// V4 h = aefgh.get(4);
+					//
+					// LOGGER.info("a={} e={} f={} g={} h={} ", a, e, f, g, h);
+					// });
+					// //
+					// // allM4s.stream().forEach(abcd_efgh_0 -> {
+					// // // for (int i = 0; i < V4.NB_BLOCK; i++) {
+					// // // Check AE
+					// // {
+					// // int a_0 = abcd_efgh_0.left.getI(0);
+					// //
+					// // for (int j = 0; j < V4.NB_BLOCK; j++) {
+					// // if (a_0 * abcd_efgh_0.right.getI(j) != ae.getI(j)) {
+					// // return;
+					// // }
+					// // }
+					// //
+					// // for (int j = 0; j < V4.NB_BLOCK; j++) {
+					// // if (a_0 * abcd_efgh_0.right.getI(j) != ae.getI(j)) {
+					// // return;
+					// // }
+					// // }
+					// // }
+					// // // }
+					// // });
+					//
+					// // Lists.cartesianProduct(allV4s, allV4s).forEach(a_efgh -> {
+					// // V4 a = a_efgh.get(0);
+					// // V4 efgh = a_efgh.get(1);
+					// //
+					// // VectorOperations.scalarProduct(v4, ae4);
+					// // });
+				});
+				// }
 				if (!ags.isEmpty() && !ahs.isEmpty()) {
 					LOGGER.info("# AG={} # AH={}", ags.size(), ahs.size());
 				}
 			});
 		});
+
 	}
 
 	private static void serializeToTmpFile(

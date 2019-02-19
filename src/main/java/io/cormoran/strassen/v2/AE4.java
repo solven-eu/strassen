@@ -15,10 +15,10 @@ import com.google.common.primitives.Ints;
 public class AE4 implements Serializable {
 	private static final long serialVersionUID = 2071895882407701454L;
 
-	private static final int MAX_AE = (int) Math.pow(V4.MAX_VALUE, 2);
+	public static final int MAX_AE = (int) Math.pow(V4.MAX_VALUE, 2);
 
 	// From -max to +max, including 0
-	private static final int NB_VALUES_AE = MAX_AE * 2 + 1;
+	public static final int NB_VALUES_AE = MAX_AE * 2 + 1;
 
 	public static final int NB_AE_WING = Ints.checkedCast((long) Math.pow(NB_VALUES_AE, V4.NB_BLOCK));
 

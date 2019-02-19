@@ -24,7 +24,25 @@ public class TestOtherStrassen {
 	}
 
 	@Test
-	public void testV4_getI() {
-		Assert.assertEquals(4, new V4(50).getI(2));
+	public void testV4_getI_0() {
+		V4 v4_0 = new V4(0);
+		Assert.assertEquals(-V4.MAX_VALUE, v4_0.getI(2));
+	}
+
+	@Test
+	public void testV4_getI_50() {
+		V4 v4_50 = new V4(50);
+		Assert.assertEquals(1, v4_50.getI(2));
+	}
+
+	@Test
+	public void testScalarMul() {
+		V4 base = new V4(0);
+		int coeff = -1;
+		AE4 multiplied = VectorOperations.mul(base, coeff);
+
+		for (int i = 0; i < V4.NB_BLOCK; i++) {
+			Assert.assertEquals(base.getI(i) * coeff, multiplied.getI(i));
+		}
 	}
 }

@@ -18,6 +18,12 @@ public class M4 {
 		this.right = new V4(indexR);
 	}
 
+	public M4(V4 left, V4 right) {
+		super();
+		this.left = left;
+		this.right = right;
+	}
+
 	public int getA() {
 		return left.getA();
 	}
