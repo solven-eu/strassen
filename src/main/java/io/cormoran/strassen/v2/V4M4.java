@@ -3,10 +3,10 @@ package io.cormoran.strassen.v2;
 import java.util.Objects;
 
 public class V4M4 {
-	public final V4 a;
+	public final ABCD a;
 	public final M4 efgh;
 
-	public V4M4(V4 a, M4 efgh) {
+	public V4M4(ABCD a, M4 efgh) {
 		this.a = a;
 		this.efgh = efgh;
 	}

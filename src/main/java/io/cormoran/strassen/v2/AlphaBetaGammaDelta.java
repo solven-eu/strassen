@@ -1,7 +1,7 @@
 package io.cormoran.strassen.v2;
 
 import java.io.Serializable;
-import java.util.Objects;
+import java.util.Arrays;
 
 /**
  * A Tuple (Alpha, Beta, Gamma, Delta)
@@ -12,21 +12,21 @@ import java.util.Objects;
 public class AlphaBetaGammaDelta implements Serializable {
 	private static final long serialVersionUID = 1896848489651100632L;
 
-	final V4 alpha;
-	final V4 beta;
-	final V4 gamma;
-	final V4 delta;
+	// Number of allowed multiplications
+	final int NB_GREEK = ABCD.NB_BLOCK;
 
-	public AlphaBetaGammaDelta(V4 alpha, V4 beta, V4 gamma, V4 delta) {
-		this.alpha = alpha;
-		this.beta = beta;
-		this.gamma = gamma;
-		this.delta = delta;
+	final Greek[] greeks;
+
+	public AlphaBetaGammaDelta(Greek... greeks) {
+		if (greeks.length != NB_GREEK) {
+			throw new IllegalStateException("Received: " + greeks.length);
+		}
+		this.greeks = greeks;
 	}
 
 	@Override
 	public int hashCode() {
-		return Objects.hash(alpha, beta, delta, gamma);
+		return Arrays.hashCode(greeks);
 	}
 
 	@Override
@@ -41,9 +41,11 @@ public class AlphaBetaGammaDelta implements Serializable {
 			return false;
 		}
 		AlphaBetaGammaDelta other = (AlphaBetaGammaDelta) obj;
-		return Objects.equals(alpha, other.alpha) && Objects.equals(beta, other.beta)
-				&& Objects.equals(delta, other.delta)
-				&& Objects.equals(gamma, other.gamma);
+		return Arrays.equals(greeks, other.greeks);
+	}
+
+	public Greek getI(int i) {
+		return greeks[i];
 	}
 
 }

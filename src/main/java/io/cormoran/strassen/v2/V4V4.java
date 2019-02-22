@@ -4,10 +4,10 @@ import java.util.Objects;
 
 @Deprecated
 public class V4V4 {
-	public final V4 a;
-	public final V4 efgh;
+	public final ABCD a;
+	public final ABCD efgh;
 
-	public V4V4(V4 a, V4 efgh) {
+	public V4V4(ABCD a, ABCD efgh) {
 		this.a = a;
 		this.efgh = efgh;
 	}
