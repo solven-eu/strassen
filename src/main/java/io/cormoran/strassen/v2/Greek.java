@@ -1,9 +1,6 @@
 package io.cormoran.strassen.v2;
 
 import java.io.Serializable;
-import java.util.Objects;
-import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 
 import com.google.common.primitives.Ints;
 
@@ -13,7 +10,7 @@ import com.google.common.primitives.Ints;
  * @author Benoit Lacelle
  *
  */
-public class Greek implements Serializable {
+public class Greek extends Vector implements Serializable {
 	private static final long serialVersionUID = -7277232825394300174L;
 
 	// If 1, we allow from -1 to 1. If 2, we allow from -2 to 2
@@ -26,47 +23,21 @@ public class Greek implements Serializable {
 
 	public static final int CARDINALITY_GREEK = Ints.checkedCast((long) Math.pow(NB_VALUES, NB_COEF));
 
-	// From 0 to 80 (where 80 = 3*3*3*3 - 1)
-	final int index;
-
 	public Greek(int indexL) {
-		assert indexL >= 0;
-		assert indexL < CARDINALITY_GREEK;
-
-		this.index = indexL;
+		super(NB_COEF, MAX_VALUE, indexL);
 	}
 
-	@Override
-	public int hashCode() {
-		return Objects.hash(index);
-	}
+	public static boolean isSoftlyGrowing(Greek greek) {
+		for (int i = 1; i < NB_COEF; i++) {
+			int previous = greek.getI(i - 1);
+			int current = greek.getI(i);
 
-	@Override
-	public boolean equals(Object obj) {
-		if (this == obj) {
-			return true;
+			if (current < previous) {
+				return false;
+			}
 		}
-		if (obj == null) {
-			return false;
-		}
-		if (getClass() != obj.getClass()) {
-			return false;
-		}
-		Greek other = (Greek) obj;
-		return index == other.index;
-	}
 
-	@Override
-	public String toString() {
-		return A.toString(NB_COEF, this::getI);
-	}
-
-	public int getI(int i) {
-		assert i >= 0;
-		assert i < NB_COEF;
-
-		long divisor = (long) Math.pow(NB_VALUES, i);
-		return (int) (index / divisor) % NB_VALUES - MAX_VALUE;
+		return true;
 	}
 
 }

@@ -13,7 +13,7 @@ public class AlphaBetaGammaDelta implements Serializable {
 	private static final long serialVersionUID = 1896848489651100632L;
 
 	// Number of allowed multiplications
-	final int NB_GREEK = ABCD.NB_BLOCK;
+	static final int NB_GREEK = ABCD.NB_BLOCK;
 
 	final Greek[] greeks;
 
@@ -46,6 +46,11 @@ public class AlphaBetaGammaDelta implements Serializable {
 
 	public Greek getI(int i) {
 		return greeks[i];
+	}
+
+	@Override
+	public String toString() {
+		return "AlphaBetaGammaDelta [greeks=" + Arrays.toString(greeks) + "]";
 	}
 
 }

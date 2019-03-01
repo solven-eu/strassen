@@ -29,11 +29,29 @@ import cormoran.pepper.io.PepperSerializationHelper;
 
 /**
  * <p>
- * |A B| |E F| _ |AE+BG AF+BH| _ |alpha.M beta.M|
+ * |A B| |E F| > |AE+BG AF+BH| > |alpha.M beta.M|
  * </p>
  * <p>
  * |C D| |G H| = |CE+DG CF+DH| = |gamma.M delta.M|
  * </p>
+ * 
+ * Symmetries:
+ * 
+ * Symmetry 1: Greek and M coefficients can be re-ordered accordingly: we can consider only growing permutations of one
+ * of greek (typically Alpha as it is the first considered greek).
+ * 
+ * Symmetry 2: If AC and BD columns are exchanged, is it directly compensated by exchanging rows EF and GH without
+ * effect on greeks/Ms.
+ * 
+ * Symmetry 3: If AB and CD rows are exchanged, it is directly compensated by exchanging columns EG and FH and leads to
+ * swapping of Alpha <-> Delta and Beta <-> Gamma.
+ * 
+ * Symmetry 4: Given Transposed(P.Q) == Transposed(Q).Transposed(Q), we can transpose ABCD and EFGH to swap Gamma and
+ * Beta.
+ * 
+ * Symmetry 4 enables considering only Beta < Gamma
+ * 
+ * Symmetry 2,3,4 enables considering only Alpha < Delta
  * 
  * @author Benoit Lacelle
  *
@@ -67,7 +85,6 @@ public class RunStrassen {
 				MultimapBuilder.linkedHashKeys().arrayListValues().build();
 		Multimaps.invertFrom(alphaBetaGammaDeltaToCombinations, combinationsToAlphaBetaGammaDelta);
 
-		// 1433472 -> 246144 -> 246144
 		LOGGER.info("# AlphaBetaGammaDelta={} # AE_AF_CE_CF={} # AlphaBetaGammaDelta_AE_AF_CE_CF={}",
 				alphaBetaGammaDeltaToCombinations.keySet().size(),
 				combinationsToAlphaBetaGammaDelta.keySet().size(),
@@ -94,8 +111,8 @@ public class RunStrassen {
 					.collect(Collectors.toCollection(LinkedHashSet::new));
 
 			// AG and AH gives 0 against Alpha, Beta, Gamma, Delta
-			Set<AE4> abgdTo0 =
-					Sets.intersection(Sets.intersection(alphaTo0, betaTo0), Sets.intersection(gammaTo0, deltaTo0));
+			Set<AE4> abgdTo0 = helper.intersection(helper.intersection(alphaTo0, betaTo0),
+					helper.intersection(gammaTo0, deltaTo0));
 
 			if (abgdTo0.isEmpty()) {
 				return;
@@ -106,6 +123,11 @@ public class RunStrassen {
 				AE4 ae = ae_af_ce_cf.ae;
 				AE4 af = ae_af_ce_cf.af;
 				AE_AF_CE_CF bg_bh_dg_dh = combination.get(1);
+
+				System.out.println(abgdTo0.stream()
+						// AE and BG constrains AG
+						.filter(ag -> checkAEZeroesIncompatibility3(ae_af_ce_cf.ae, bg_bh_dg_dh.ae, ag))
+						.count());
 
 				Set<AE4> ags = abgdTo0.stream()
 						// AE and BG constrains AG
@@ -188,18 +210,22 @@ public class RunStrassen {
 
 		AE4 ae4Zero = AE4.zero();
 
-		List<Greek> alphas =
-				helper.nbV4AE4Gives1.stream().map(v4ae4 -> v4ae4.greek).distinct().collect(Collectors.toList());
-		alphas.forEach(alpha -> {
+		List<Greek> alphas = helper.nbV4AE4Gives1.stream()
+				.map(v4ae4 -> v4ae4.greek)
+				.distinct()
+				// We filter Alpha with index in growing order, as there is a symmetry between Greeks and Mi (swapping
+				// entry in Alpha is a no-op if other greeks and Mi/AE4 are swapped the same way)
+				.filter(greek -> Greek.isSoftlyGrowing(greek))
+				.collect(Collectors.toList());
+
+		LOGGER.info("# alpha={}", alphas.size());
+
+		alphas.stream().limit(Integer.MAX_VALUE).forEach(alpha -> {
 			// Filter Alpha.AE == 1
 			Set<AE4> aes_Alpha = helper.gives1(alpha);
-			// Filter Alpha.AF == 0
-			Set<AE4> afs_Alpha = helper.gives0(alpha);
-			// Filter Alpha.CE == 0
-			Set<AE4> ces_Alpha = helper.gives0(alpha);
-			// Filter Alpha.CF == 0
-			Set<AE4> cfs_Alpha = helper.gives0(alpha);
-			LOGGER.info("For alpha={} and # AE={} and # AF={}", alpha, aes_Alpha.size(), afs_Alpha.size());
+
+			Set<AE4> alphaTo0 = helper.gives0(alpha);
+			LOGGER.info("For alpha={} and # AE={} and # alphaTo0={}", alpha, aes_Alpha.size(), alphaTo0.size());
 
 			aes_Alpha.forEach(ae -> {
 				// Filter (Beta|Gamma|Delta).AE == 0
@@ -207,16 +233,15 @@ public class RunStrassen {
 
 				LOGGER.debug("For alpha={} and AE={} # beta|gamma|delta={}", alpha, ae, betaGammaDeltas.size());
 
-				betaGammaDeltas.forEach(beta -> {
+				betaGammaDeltas.stream().filter(beta -> {
+
+					return true;
+				}).limit(Integer.MAX_VALUE).forEach(beta -> {
 					// Filter Beta.AF == 1
 					Set<AE4> afs_Beta = helper.gives1(beta);
-					Set<AE4> afs_AlphaBeta = Sets.intersection(afs_Alpha, afs_Beta);
+					Set<AE4> afs_AlphaBeta = helper.intersection(alphaTo0, afs_Beta);
 
-					// Filter Alpha.CE == 0
-					Set<AE4> ces_Beta = helper.gives0(beta);
-					Set<AE4> ces_AlphaBeta = Sets.intersection(ces_Alpha, ces_Beta);
-					Set<AE4> cfs_Beta = helper.gives0(beta);
-					Set<AE4> cfs_AlphaBeta = Sets.intersection(cfs_Alpha, cfs_Beta);
+					Set<AE4> alphaBetaTo0 = helper.intersection(alphaTo0, helper.gives0(beta));
 
 					afs_AlphaBeta.forEach(af -> {
 						betaGammaDeltas.forEach(gamma -> {
@@ -228,10 +253,9 @@ public class RunStrassen {
 							}
 
 							Set<AE4> ces_Gamma = helper.gives1(gamma);
-							Set<AE4> ces_AlphaBetaGamma = Sets.intersection(ces_AlphaBeta, ces_Gamma);
+							Set<AE4> ces_AlphaBetaGamma = helper.intersection(alphaBetaTo0, ces_Gamma);
 
-							Set<AE4> cfs_Gamma = helper.gives0(gamma);
-							Set<AE4> cfs_AlphaBetaGamma = Sets.intersection(cfs_AlphaBeta, cfs_Gamma);
+							Set<AE4> alphaBetaGammaTo0 = helper.intersection(alphaBetaTo0, helper.gives0(gamma));
 
 							ces_AlphaBetaGamma.forEach(ce -> {
 								if (!checkAEZeroesIncompatibility3(af, ce, ae)) {
@@ -239,6 +263,7 @@ public class RunStrassen {
 								}
 
 								betaGammaDeltas.forEach(delta -> {
+
 									if (delta.equals(beta) || delta.equals(gamma)) {
 										return;
 									} else if (VectorOperations.scalarProduct(delta, af) != 0) {
@@ -252,23 +277,23 @@ public class RunStrassen {
 									AlphaBetaGammaDelta abgd = new AlphaBetaGammaDelta(alpha, beta, gamma, delta);
 
 									Set<AE4> cfs_Delta = helper.gives1(delta);
-									Set<AE4> cfs_AlphaBetaGammaDelta = Sets.intersection(cfs_AlphaBetaGamma, cfs_Delta);
+									Set<AE4> cfs_AlphaBetaGammaDelta =
+											helper.intersection(alphaBetaGammaTo0, cfs_Delta);
 
 									// Check if greek have at least one common AG giving 0
 									{
-										Set<AE4> toZero_Delta = helper.gives0(delta);
-										Set<AE4> toZero_AlphaBetaGamma = cfs_AlphaBetaGamma;
 										Set<AE4> toZero_AlphaBetaGammaDelta =
-												Sets.intersection(toZero_AlphaBetaGamma, toZero_Delta);
+												helper.intersection(alphaBetaGammaTo0, helper.gives0(delta));
 
-										if (toZero_AlphaBetaGammaDelta.isEmpty()
-												|| toZero_AlphaBetaGammaDelta.size() == 1
-														&& toZero_AlphaBetaGammaDelta.contains(ae4Zero)) {
+										int greeksToZeroSize = toZero_AlphaBetaGammaDelta.size();
+										if (greeksToZeroSize == 0 || greeksToZeroSize == 1
+												&& toZero_AlphaBetaGammaDelta.contains(ae4Zero)) {
 											return;
 										}
 									}
 
 									cfs_AlphaBetaGammaDelta.forEach(cf -> {
+										// Check CF is compatible with AF and CE
 										if (!checkAEZeroesIncompatibility3(af, ce, cf)) {
 											return;
 										} else if (!checkAEZeroesIncompatibility3(ae, cf, ce)) {
@@ -279,12 +304,9 @@ public class RunStrassen {
 
 										alphaBetaGammaDeltaToCombinations.put(abgd, new AE_AF_CE_CF(ae, af, ce, cf));
 
-										if (Long.highestOneBit(alphaBetaGammaDeltaToCombinations.size()) != Long
-												.highestOneBit(alphaBetaGammaDeltaToCombinations.size() - 1)) {
-
+										if (Long.bitCount(alphaBetaGammaDeltaToCombinations.size()) == 1) {
 											LOGGER.info(
-													"({}) For Alpha={} Beta={} Gamma={} Delta={} and AE={} and AF={} and CE={}, CF={}",
-													alphaBetaGammaDeltaToCombinations.size(),
+													"For Alpha={} Beta={} Gamma={} Delta={} and AE={} and AF={} and CE={}, CF={} ({})",
 													alpha,
 													beta,
 													gamma,
@@ -292,7 +314,8 @@ public class RunStrassen {
 													ae,
 													af,
 													ce,
-													cf);
+													cf,
+													alphaBetaGammaDeltaToCombinations.size());
 										}
 									});
 
@@ -328,7 +351,7 @@ public class RunStrassen {
 
 		// AG and AH gives 0 against Alpha, Beta, Gamma, Delta
 		Set<AE4> abgdTo0 =
-				Sets.intersection(Sets.intersection(alphaTo0, betaTo0), Sets.intersection(gammaTo0, deltaTo0));
+				helper.intersection(helper.intersection(alphaTo0, betaTo0), helper.intersection(gammaTo0, deltaTo0));
 
 		if (abgdTo0.isEmpty()) {
 			throw new IllegalArgumentException("Empty but not empty X|");
@@ -336,7 +359,7 @@ public class RunStrassen {
 	}
 
 	private static boolean checkAEZeroesIncompatibility3(AE4 af, AE4 ce, AE4 ae) {
-		for (int i = 0; i < ABCD.NB_BLOCK; i++) {
+		for (int i = 0; i < AE4.MAX_AE; i++) {
 			int aeValue = ae.getI(i);
 			int afValue = af.getI(i);
 			int ceValue = ce.getI(i);

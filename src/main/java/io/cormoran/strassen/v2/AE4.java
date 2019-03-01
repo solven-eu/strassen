@@ -14,7 +14,7 @@ import com.google.common.primitives.Ints;
  * @author Benoit Lacelle
  *
  */
-public class AE4 implements Serializable {
+public class AE4 extends Vector {
 	private static final long serialVersionUID = 2071895882407701454L;
 
 	// If A can range from -2 to 2, then AE can range from -4 to 4
@@ -30,13 +30,8 @@ public class AE4 implements Serializable {
 	// The maximum acceptable index
 	public static final int NB_AE_WING = Ints.checkedCast((long) Math.pow(NB_VALUES_AE, NB_MUL));
 
-	final int index;
-
 	public AE4(int index) {
-		assert index >= 0;
-		assert index < NB_AE_WING;
-
-		this.index = index;
+		super(NB_MUL, A.MAX_A, index);
 	}
 
 	public static AE4 fromValues(int... values) {
@@ -52,6 +47,9 @@ public class AE4 implements Serializable {
 
 		int value = 0;
 		for (int i = 0; i < NB_MUL; i++) {
+			if (Math.abs(values[i]) > AE4.MAX_AE) {
+				throw new IllegalArgumentException(values[i] + " is not in the ange defined by " + AE4.MAX_AE);
+			}
 			value += (values[i] + AE4.MAX_AE) * Math.pow(AE4.NB_VALUES_AE, i);
 		}
 		return value;
@@ -61,56 +59,4 @@ public class AE4 implements Serializable {
 		return fromValues(new int[NB_MUL]);
 	}
 
-	@Override
-	public int hashCode() {
-		return Objects.hash(index);
-	}
-
-	@Override
-	public boolean equals(Object obj) {
-		if (this == obj) {
-			return true;
-		}
-		if (obj == null) {
-			return false;
-		}
-		if (getClass() != obj.getClass()) {
-			return false;
-		}
-		AE4 other = (AE4) obj;
-		return index == other.index;
-	}
-
-	@Override
-	public String toString() {
-		return A.toString(NB_MUL, this::getI);
-	}
-
-	public int getI(int i) {
-		assert i >= 0;
-		assert i < NB_MUL;
-
-		double divided = index / Math.pow(NB_VALUES_AE, i);
-		return (int) divided % NB_VALUES_AE - MAX_AE;
-	}
-
-	@Deprecated
-	public int getAE0() {
-		return index % NB_VALUES_AE - MAX_AE;
-	}
-
-	@Deprecated
-	public int getAE1() {
-		return (index / NB_VALUES_AE) % NB_VALUES_AE - MAX_AE;
-	}
-
-	@Deprecated
-	public int getAE2() {
-		return (index / (NB_VALUES_AE * NB_VALUES_AE)) % NB_VALUES_AE - MAX_AE;
-	}
-
-	@Deprecated
-	public int getAE3() {
-		return (index / (NB_VALUES_AE * NB_VALUES_AE * NB_VALUES_AE)) % NB_VALUES_AE - MAX_AE;
-	}
 }

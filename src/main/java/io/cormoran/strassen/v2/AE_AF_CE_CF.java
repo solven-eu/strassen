@@ -46,4 +46,9 @@ public class AE_AF_CE_CF implements Serializable {
 				&& Objects.equals(cf, other.cf);
 	}
 
+	@Override
+	public String toString() {
+		return "AE_AF_CE_CF [ae=" + ae + ", af=" + af + ", ce=" + ce + ", cf=" + cf + "]";
+	}
+
 }

@@ -14,7 +14,7 @@ import com.google.common.primitives.Ints;
  * @author Benoit Lacelle
  *
  */
-public class A implements Serializable {
+public class A extends Vector {
 	private static final long serialVersionUID = 2071895882407701454L;
 
 	// If 1, we allow from -1 to 1. If 2, we allow from -2 to 2
@@ -33,102 +33,18 @@ public class A implements Serializable {
 	// The maximum acceptable index
 	public static final int NB_A_WING = Ints.checkedCast((long) Math.pow(NB_VALUES_A, NB_MUL));
 
-	final int index;
-
 	public A(int index) {
-		assert index >= 0;
-		assert index < NB_A_WING;
-
-		this.index = index;
+		super(NB_MUL, MAX_VALUE, index);
 	}
 
 	public static A fromValues(int... values) {
-		int value = computeIndex(values);
+		int value = Vector.computeIndex(A.NB_MUL, A.MAX_A, values);
 
 		return new A(value);
-	}
-
-	public static int computeIndex(int... values) {
-		if (values.length != NB_MUL) {
-			throw new IllegalArgumentException("We expected to receive ");
-		}
-
-		int value = 0;
-		for (int i = 0; i < NB_MUL; i++) {
-			value += (values[i] + A.MAX_A) * Math.pow(A.NB_VALUES_A, i);
-		}
-		return value;
 	}
 
 	public static A zero() {
 		return fromValues(new int[NB_MUL]);
 	}
 
-	@Override
-	public int hashCode() {
-		return Objects.hash(index);
-	}
-
-	@Override
-	public boolean equals(Object obj) {
-		if (this == obj) {
-			return true;
-		}
-		if (obj == null) {
-			return false;
-		}
-		if (getClass() != obj.getClass()) {
-			return false;
-		}
-		A other = (A) obj;
-		return index == other.index;
-	}
-
-	@Override
-	public String toString() {
-		return toString(NB_MUL, this::getI);
-	}
-
-	public static String toString(int length, IntFunction<Integer> toIndex) {
-		return IntStream.range(0, length).mapToObj(i -> {
-			int value = toIndex.apply(i);
-
-			if (value == 0) {
-				return "~0";
-			} else if (value > 0) {
-				return "+" + value;
-			} else {
-				// Prefixed by '-'
-				return Integer.toString(value);
-			}
-		}).collect(Collectors.joining(" "));
-	}
-
-	public int getI(int i) {
-		assert i >= 0;
-		assert i < NB_MUL;
-
-		double divided = index / Math.pow(NB_VALUES_A, i);
-		return (int) divided % NB_VALUES_A - MAX_A;
-	}
-
-	@Deprecated
-	public int getAE0() {
-		return index % NB_VALUES_A - MAX_A;
-	}
-
-	@Deprecated
-	public int getAE1() {
-		return (index / NB_VALUES_A) % NB_VALUES_A - MAX_A;
-	}
-
-	@Deprecated
-	public int getAE2() {
-		return (index / (NB_VALUES_A * NB_VALUES_A)) % NB_VALUES_A - MAX_A;
-	}
-
-	@Deprecated
-	public int getAE3() {
-		return (index / (NB_VALUES_A * NB_VALUES_A * NB_VALUES_A)) % NB_VALUES_A - MAX_A;
-	}
 }
