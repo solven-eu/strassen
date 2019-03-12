@@ -1,14 +1,16 @@
 package io.cormoran.strassen.v2;
 
 import java.io.Serializable;
-import java.util.Objects;
 import java.util.function.IntFunction;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
+import com.google.common.hash.HashFunction;
+import com.google.common.hash.Hashing;
 import com.google.common.primitives.Ints;
 
 public class Vector implements Serializable {
+	HashFunction hasher = Hashing.murmur3_128();
 
 	final int coordinatesCardinality;
 	final int maxValueOnCoordinate;
@@ -35,7 +37,8 @@ public class Vector implements Serializable {
 
 	@Override
 	public int hashCode() {
-		return Objects.hash(index);
+		// Integer.hashCode may lead to a lot of conflicts
+		return hasher.hashInt(index).asInt();
 	}
 
 	@Override

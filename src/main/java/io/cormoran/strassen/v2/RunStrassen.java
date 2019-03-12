@@ -12,6 +12,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,6 +23,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.MultimapBuilder;
 import com.google.common.collect.Multimaps;
+import com.google.common.collect.SetMultimap;
 import com.google.common.collect.Sets;
 import com.google.common.io.ByteStreams;
 
@@ -210,123 +212,246 @@ public class RunStrassen {
 
 		AE4 ae4Zero = AE4.zero();
 
-		List<Greek> alphas = helper.nbV4AE4Gives1.stream()
+		Set<Greek> rawAlphasOrDelta = helper.nbV4AE4Gives1.stream()
 				.map(v4ae4 -> v4ae4.greek)
 				.distinct()
-				// We filter Alpha with index in growing order, as there is a symmetry between Greeks and Mi (swapping
-				// entry in Alpha is a no-op if other greeks and Mi/AE4 are swapped the same way)
-				.filter(greek -> Greek.isSoftlyGrowing(greek))
-				.collect(Collectors.toList());
+				.collect(Collectors.toCollection(LinkedHashSet::new));
 
-		LOGGER.info("# alpha={}", alphas.size());
+		SetMultimap<Greek, Greek> alphasToDeltas = computeAlphasToDeltas(rawAlphasOrDelta);
 
-		alphas.stream().limit(Integer.MAX_VALUE).forEach(alpha -> {
+		LOGGER.info("# alphasToDeltas={} alphas={}", alphasToDeltas.size(), alphasToDeltas.keySet().size());
+
+		// List<Greek> alphas = helper.nbV4AE4Gives1.stream()
+		// .map(v4ae4 -> v4ae4.greek)
+		// .distinct()
+		// // We filter Alpha with index in growing order, as there is a symmetry between Greeks and Mi (swapping
+		// // entry in Alpha is a no-op if other greeks and Mi/AE4 are swapped the same way)
+		// .filter(greek -> Greek.isSoftlyGrowing(greek))
+		// .collect(Collectors.toList());
+		//
+		// LOGGER.info("# alpha={}", alphas.size());
+
+		alphasToDeltas.keySet().stream().limit(Integer.MAX_VALUE).skip(17).forEach(alpha -> {
 			// Filter Alpha.AE == 1
 			Set<AE4> aes_Alpha = helper.gives1(alpha);
 
 			Set<AE4> alphaTo0 = helper.gives0(alpha);
 			LOGGER.info("For alpha={} and # AE={} and # alphaTo0={}", alpha, aes_Alpha.size(), alphaTo0.size());
 
-			aes_Alpha.forEach(ae -> {
-				// Filter (Beta|Gamma|Delta).AE == 0
-				Set<Greek> betaGammaDeltas = helper.gives0(ae);
+			Set<Greek> deltasForAlpha = alphasToDeltas.get(alpha);
 
-				LOGGER.debug("For alpha={} and AE={} # beta|gamma|delta={}", alpha, ae, betaGammaDeltas.size());
+			if (aes_Alpha.size() < deltasForAlpha.size()) {
+				aes_Alpha.forEach(ae -> {
+					// Filter (Beta|Gamma|Delta).AE == 0
+					Set<Greek> ae_to0 =
+							helper.gives0(ae).stream().sorted().collect(Collectors.toCollection(LinkedHashSet::new));
 
-				betaGammaDeltas.stream().filter(beta -> {
+					LOGGER.debug("For alpha={} and AE={} # beta|gamma|delta={}", alpha, ae, ae_to0.size());
 
-					return true;
-				}).limit(Integer.MAX_VALUE).forEach(beta -> {
-					// Filter Beta.AF == 1
-					Set<AE4> afs_Beta = helper.gives1(beta);
-					Set<AE4> afs_AlphaBeta = helper.intersection(alphaTo0, afs_Beta);
+					Sets.intersection(ae_to0, deltasForAlpha)
+							.stream()
+							.sorted()
+							.limit(Integer.MAX_VALUE)
+							.forEach(delta -> {
+								process(helper,
+										alphaBetaGammaDeltaToCombinations,
+										ae4Zero,
+										alpha,
+										alphaTo0,
+										ae,
+										ae_to0,
+										delta);
+							});
+				});
+			} else {
 
-					Set<AE4> alphaBetaTo0 = helper.intersection(alphaTo0, helper.gives0(beta));
+				deltasForAlpha.stream().sorted().limit(Integer.MAX_VALUE).forEach(delta -> {
+					Set<AE4> deltaTo0 = helper.gives0(delta);
 
-					afs_AlphaBeta.forEach(af -> {
-						betaGammaDeltas.forEach(gamma -> {
-							if (gamma.equals(beta)) {
+					Sets.intersection(deltaTo0, aes_Alpha).forEach(ae -> {
+						// Filter (Beta|Gamma|Delta).AE == 0
+						Set<Greek> ae_to0 = helper.gives0(ae)
+								.stream()
+								.sorted()
+								.collect(Collectors.toCollection(LinkedHashSet::new));
+
+						LOGGER.debug("For alpha={} and AE={} # beta|gamma|delta={}", alpha, ae, ae_to0.size());
+
+						process(helper, alphaBetaGammaDeltaToCombinations, ae4Zero, alpha, alphaTo0, ae, ae_to0, delta);
+					});
+
+				});
+
+			}
+		});
+		return alphaBetaGammaDeltaToCombinations;
+	}
+
+	private static void process(StrassenHelper helper,
+			ListMultimap<AlphaBetaGammaDelta, AE_AF_CE_CF> alphaBetaGammaDeltaToCombinations,
+			AE4 ae4Zero,
+			Greek alpha,
+			Set<AE4> alphaTo0,
+			AE4 ae,
+			Set<Greek> ae_to0,
+			Greek delta) {
+		// Filter Delta.CF == 1
+		Set<AE4> cfs_Delta = helper.gives1(delta);
+
+		// Filter Alpha.CF == 0
+		Set<AE4> cfs_AlphaDelta = helper.intersection(alphaTo0, cfs_Delta);
+
+		Set<AE4> alphaDeltaTo0 = helper.intersection(alphaTo0, helper.gives0(delta));
+
+		cfs_AlphaDelta.forEach(cf -> {
+			ae_to0.forEach(gamma -> {
+				if (gamma.equals(delta)) {
+					return;
+				} else if (VectorOperations.scalarProduct(gamma, cf) != 0) {
+					LOGGER.debug("CF not compatible with Gamma");
+					return;
+				}
+
+				// Filter Gamma.CE == 1
+				Set<AE4> ces_Gamma = helper.gives1(gamma);
+				// Filter Alpha.CE == 0
+				// Filter Delta.CE == 0
+				Set<AE4> ces_AlphaDeltaGamma = helper.intersection(alphaDeltaTo0, ces_Gamma);
+
+				Set<AE4> alphaDeltaGammaTo0 = helper.intersection(alphaDeltaTo0, helper.gives0(gamma));
+
+				ces_AlphaDeltaGamma.forEach(ce -> {
+					// AE, CF, CE
+					if (!checkAEZeroesIncompatibility3(ae, cf, ce)) {
+						return;
+					}
+
+					ae_to0.stream().filter(beta -> {
+						// Symmetry: Gamma > Beta
+						return beta.compareTo(gamma) > 0;
+					}).forEach(beta -> {
+
+						if (beta.equals(delta) || beta.equals(gamma)) {
+							return;
+						} else if (VectorOperations.scalarProduct(beta, cf) != 0) {
+							LOGGER.debug("AF not compatible with Beta");
+							return;
+						} else if (VectorOperations.scalarProduct(beta, ce) != 0) {
+							LOGGER.debug("CE not compatible with Beta");
+							return;
+						}
+
+						AlphaBetaGammaDelta abgd = new AlphaBetaGammaDelta(alpha, beta, gamma, delta);
+
+						Set<AE4> afs_Beta = helper.gives1(beta);
+						Set<AE4> afs_AlphaBetaGammaDelta = helper.intersection(alphaDeltaGammaTo0, afs_Beta);
+
+						// Check if greek have at least one common AG giving 0
+						{
+							Set<AE4> toZero_AlphaBetaGammaDelta =
+									helper.intersection(alphaDeltaGammaTo0, helper.gives0(beta));
+
+							int greeksToZeroSize = toZero_AlphaBetaGammaDelta.size();
+							if (greeksToZeroSize == 0
+									|| greeksToZeroSize == 1 && toZero_AlphaBetaGammaDelta.contains(ae4Zero)) {
 								return;
-							} else if (VectorOperations.scalarProduct(gamma, af) != 0) {
-								LOGGER.debug("AF not compatible with Gamma");
+							}
+						}
+
+						afs_AlphaBetaGammaDelta.forEach(af -> {
+							// Check CF is compatible with AF and CE
+							if (!checkAEZeroesIncompatibility3(af, ce, cf)) {
+								return;
+							} else if (!checkAEZeroesIncompatibility3(af, ce, ae)) {
+								return;
+							} else if (!checkAEZeroesIncompatibility3(ae, cf, af)) {
 								return;
 							}
 
-							Set<AE4> ces_Gamma = helper.gives1(gamma);
-							Set<AE4> ces_AlphaBetaGamma = helper.intersection(alphaBetaTo0, ces_Gamma);
+							alphaBetaGammaDeltaToCombinations.put(abgd, new AE_AF_CE_CF(ae, af, ce, cf));
 
-							Set<AE4> alphaBetaGammaTo0 = helper.intersection(alphaBetaTo0, helper.gives0(gamma));
-
-							ces_AlphaBetaGamma.forEach(ce -> {
-								if (!checkAEZeroesIncompatibility3(af, ce, ae)) {
-									return;
-								}
-
-								betaGammaDeltas.forEach(delta -> {
-
-									if (delta.equals(beta) || delta.equals(gamma)) {
-										return;
-									} else if (VectorOperations.scalarProduct(delta, af) != 0) {
-										LOGGER.debug("AF not compatible with Delta");
-										return;
-									} else if (VectorOperations.scalarProduct(delta, ce) != 0) {
-										LOGGER.debug("CE not compatible with Delta");
-										return;
-									}
-
-									AlphaBetaGammaDelta abgd = new AlphaBetaGammaDelta(alpha, beta, gamma, delta);
-
-									Set<AE4> cfs_Delta = helper.gives1(delta);
-									Set<AE4> cfs_AlphaBetaGammaDelta =
-											helper.intersection(alphaBetaGammaTo0, cfs_Delta);
-
-									// Check if greek have at least one common AG giving 0
-									{
-										Set<AE4> toZero_AlphaBetaGammaDelta =
-												helper.intersection(alphaBetaGammaTo0, helper.gives0(delta));
-
-										int greeksToZeroSize = toZero_AlphaBetaGammaDelta.size();
-										if (greeksToZeroSize == 0 || greeksToZeroSize == 1
-												&& toZero_AlphaBetaGammaDelta.contains(ae4Zero)) {
-											return;
-										}
-									}
-
-									cfs_AlphaBetaGammaDelta.forEach(cf -> {
-										// Check CF is compatible with AF and CE
-										if (!checkAEZeroesIncompatibility3(af, ce, cf)) {
-											return;
-										} else if (!checkAEZeroesIncompatibility3(ae, cf, ce)) {
-											return;
-										} else if (!checkAEZeroesIncompatibility3(ae, cf, af)) {
-											return;
-										}
-
-										alphaBetaGammaDeltaToCombinations.put(abgd, new AE_AF_CE_CF(ae, af, ce, cf));
-
-										if (Long.bitCount(alphaBetaGammaDeltaToCombinations.size()) == 1) {
-											LOGGER.info(
-													"For Alpha={} Beta={} Gamma={} Delta={} and AE={} and AF={} and CE={}, CF={} ({})",
-													alpha,
-													beta,
-													gamma,
-													delta,
-													ae,
-													af,
-													ce,
-													cf,
-													alphaBetaGammaDeltaToCombinations.size());
-										}
-									});
-
-								});
-							});
+							if (Long.bitCount(alphaBetaGammaDeltaToCombinations.size()) == 1) {
+								LOGGER.info(
+										"For Alpha={} Delta={} Beta={} Gamma={} and AE={} and AF={} and CE={}, CF={} ({})",
+										alpha,
+										delta,
+										beta,
+										gamma,
+										ae,
+										af,
+										ce,
+										cf,
+										alphaBetaGammaDeltaToCombinations.size());
+							}
 						});
+
 					});
 				});
 			});
 		});
-		return alphaBetaGammaDeltaToCombinations;
+	}
+
+	/**
+	 * This takes advantage of various symmetries, including Symmetry-1 a single permutation of Alpha can be considered
+	 * (as (Greeks, Ms) can be permuted all accordingly). This symmetry is considered after restricting Alpha < Delta
+	 * (given Symmetry-2,3,4)
+	 * 
+	 * @param rawAlphasOrDelta
+	 * @return the possible pairs (Alpha, Deltas)
+	 */
+	private static SetMultimap<Greek, Greek> computeAlphasToDeltas(Set<Greek> rawAlphasOrDelta) {
+		SetMultimap<Greek, Greek> alphasToDeltas = MultimapBuilder.linkedHashKeys().linkedHashSetValues().build();
+
+		Sets.cartesianProduct(rawAlphasOrDelta, rawAlphasOrDelta)
+				.stream()
+				// Delta > Alpha
+				// This typically rejects Alpha == [1,1,1,1,1] as then, there is no possible delta
+				.filter(l -> l.get(1).compareTo(l.get(0)) > 0)
+				.forEach(alphaBeta -> {
+					Greek alpha = alphaBeta.get(0);
+					Greek delta = alphaBeta.get(1);
+
+					// TODO Permute Alpha to get it softly growing
+					int[] newA = new int[Greek.NB_COEF];
+					int[] newD = new int[Greek.NB_COEF];
+
+					Set<Integer> processedIndex = new LinkedHashSet<>();
+
+					for (int i = 0; i < Greek.NB_COEF; i++) {
+						// The minimal not-processed value
+						int minA = IntStream.range(0, Greek.NB_COEF)
+								.filter(index -> !processedIndex.contains(index))
+								.map(index -> alpha.getI(index))
+								.min()
+								.getAsInt();
+
+						// The index where A == min A and D is minified
+						int minD = IntStream.range(0, Greek.NB_COEF)
+								.filter(index -> !processedIndex.contains(index))
+								.filter(index -> minA == alpha.getI(index))
+								.map(index -> delta.getI(index))
+								.min()
+								.getAsInt();
+
+						int nextIndex = IntStream.range(0, Greek.NB_COEF)
+								.filter(index -> !processedIndex.contains(index))
+								.filter(index -> minA == alpha.getI(index))
+								.filter(index -> minD == delta.getI(index))
+								.min()
+								.getAsInt();
+
+						// This index should not be considered anymore as it is already inserted in output
+						processedIndex.add(nextIndex);
+
+						newA[i] = alpha.getI(nextIndex);
+						newD[i] = delta.getI(nextIndex);
+					}
+
+					Greek newAlpha = new Greek(Vector.computeIndex(Greek.NB_COEF, Greek.MAX_VALUE, newA));
+					Greek newDelta = new Greek(Vector.computeIndex(Greek.NB_COEF, Greek.MAX_VALUE, newD));
+					alphasToDeltas.put(newAlpha, newDelta);
+				});
+		return alphasToDeltas;
 	}
 
 	@Deprecated

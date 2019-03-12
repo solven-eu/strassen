@@ -133,6 +133,9 @@ public class StrassenHelper {
 	}
 
 	public Set<AE4> intersection(Set<AE4> left, Set<AE4> right) {
+		if (left.size() <= 5 || right.size() <= 5) {
+			return Sets.intersection(left, right);
+		}
 		try {
 			return ae4Intersections.get(Arrays.asList(left, right),
 					() -> ImmutableSet.copyOf(Sets.intersection(left, right)));

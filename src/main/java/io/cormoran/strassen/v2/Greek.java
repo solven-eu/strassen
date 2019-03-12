@@ -10,7 +10,7 @@ import com.google.common.primitives.Ints;
  * @author Benoit Lacelle
  *
  */
-public class Greek extends Vector implements Serializable {
+public class Greek extends Vector implements Serializable, Comparable<Greek> {
 	private static final long serialVersionUID = -7277232825394300174L;
 
 	// If 1, we allow from -1 to 1. If 2, we allow from -2 to 2
@@ -38,6 +38,24 @@ public class Greek extends Vector implements Serializable {
 		}
 
 		return true;
+	}
+
+	@Override
+	public int compareTo(Greek o) {
+		for (int i = 0; i < NB_COEF; i++) {
+			int thisValue = this.getI(i);
+			int otherValue = o.getI(i);
+			if (thisValue > otherValue) {
+				return 1;
+			} else if (thisValue < otherValue) {
+				return -1;
+			}
+		}
+
+		assert this.hashCode() == o.hashCode() && this.equals(o);
+
+		// equals
+		return 0;
 	}
 
 }
