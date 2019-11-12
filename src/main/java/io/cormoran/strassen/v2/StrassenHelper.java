@@ -26,8 +26,8 @@ public class StrassenHelper {
 	final Set<M4> allM4s;
 	final Set<AE4> allAEs;
 
-	final Set<GreekAE4> nbV4AE4Gives0;
-	final Set<GreekAE4> nbV4AE4Gives1;
+	final Set<GreekAE4> greekWithAE4To0;
+	final Set<GreekAE4> greekWithAE4To1;
 
 	final Cache<Greek, Set<AE4>> greekToGives1 = CacheBuilder.newBuilder().build();
 	final Cache<Greek, Set<AE4>> greekToGives0 = CacheBuilder.newBuilder().build();
@@ -66,28 +66,28 @@ public class StrassenHelper {
 
 		LOGGER.info("# AE4: {}", allAEs.size());
 
-		nbV4AE4Gives0 = Sets.cartesianProduct(allGreeks, allAEs)
+		greekWithAE4To0 = Sets.cartesianProduct(allGreeks, allAEs)
 				.stream()
 				.map(l -> new GreekAE4((Greek) l.get(0), (AE4) l.get(1)))
 				.filter(l -> VectorOperations.scalarProduct(l.greek, l.ae4) == 0)
 				.collect(Collectors.toCollection(LinkedHashSet::new));
 		LOGGER.info("# A4.AE4 == 0: {}, including # V4 == {}",
-				nbV4AE4Gives0.size(),
-				nbV4AE4Gives0.stream().map(v4ae4 -> v4ae4.greek).distinct().count());
+				greekWithAE4To0.size(),
+				greekWithAE4To0.stream().map(v4ae4 -> v4ae4.greek).distinct().count());
 
-		nbV4AE4Gives1 = Sets.cartesianProduct(allGreeks, allAEs)
+		greekWithAE4To1 = Sets.cartesianProduct(allGreeks, allAEs)
 				.stream()
 				.map(l -> new GreekAE4((Greek) l.get(0), (AE4) l.get(1)))
 				.filter(l -> VectorOperations.scalarProduct(l.greek, l.ae4) == 1)
 				.collect(Collectors.toCollection(LinkedHashSet::new));
-		LOGGER.info("# A4.AE4 == 1: {}, including # V4 == {}",
-				nbV4AE4Gives1.size(),
-				nbV4AE4Gives1.stream().map(v4ae4 -> v4ae4.greek).distinct().count());
+		LOGGER.info("#A4.AE4 == 1: {}, including #V4 == {}",
+				greekWithAE4To1.size(),
+				greekWithAE4To1.stream().map(v4ae4 -> v4ae4.greek).distinct().count());
 	}
 
 	public Set<AE4> gives1(Greek alpha) {
 		try {
-			return greekToGives1.get(alpha, () -> gives1(nbV4AE4Gives1, alpha));
+			return greekToGives1.get(alpha, () -> gives1(greekWithAE4To1, alpha));
 		} catch (ExecutionException e) {
 			throw new RuntimeException(e);
 		}
@@ -95,7 +95,7 @@ public class StrassenHelper {
 
 	public Set<AE4> gives0(Greek alpha) {
 		try {
-			return greekToGives0.get(alpha, () -> gives0(nbV4AE4Gives0, alpha));
+			return greekToGives0.get(alpha, () -> gives0(greekWithAE4To0, alpha));
 		} catch (ExecutionException e) {
 			throw new RuntimeException(e);
 		}
@@ -103,7 +103,7 @@ public class StrassenHelper {
 
 	public Set<Greek> gives0(AE4 alpha) {
 		try {
-			return ae4ToGives0.get(alpha, () -> gives0(nbV4AE4Gives0, alpha));
+			return ae4ToGives0.get(alpha, () -> gives0(greekWithAE4To0, alpha));
 		} catch (ExecutionException e) {
 			throw new RuntimeException(e);
 		}

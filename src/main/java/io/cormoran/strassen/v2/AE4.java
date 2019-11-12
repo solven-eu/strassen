@@ -1,10 +1,5 @@
 package io.cormoran.strassen.v2;
 
-import java.io.Serializable;
-import java.util.Objects;
-import java.util.stream.Collectors;
-import java.util.stream.IntStream;
-
 import com.google.common.primitives.Ints;
 
 /**
@@ -24,7 +19,7 @@ public class AE4 extends Vector {
 	public static final int NB_VALUES_AE = MAX_AE * 2 + 1;
 
 	// How many underlying multiplications we allow to process
-	// 4 leads to no solution
+	// 4 leads to no solution. 8 is brute-force solution. 7 is Strassen
 	public static final int NB_MUL = 5;
 
 	// The maximum acceptable index
@@ -42,7 +37,7 @@ public class AE4 extends Vector {
 
 	public static int computeIndex(int... values) {
 		if (values.length != NB_MUL) {
-			throw new IllegalArgumentException("We expected to receive ");
+			throw new IllegalArgumentException("We expected to receive " + NB_MUL + " values");
 		}
 
 		int value = 0;

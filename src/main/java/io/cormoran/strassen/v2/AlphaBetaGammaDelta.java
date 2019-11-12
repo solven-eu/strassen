@@ -12,7 +12,7 @@ import java.util.Arrays;
 public class AlphaBetaGammaDelta implements Serializable {
 	private static final long serialVersionUID = 1896848489651100632L;
 
-	// Number of allowed multiplications
+	// Number of quadrants: each greek is the linear combination of sub-matrices combinations giving the quadrant
 	static final int NB_GREEK = ABCD.NB_BLOCK;
 
 	final Greek[] greeks;
